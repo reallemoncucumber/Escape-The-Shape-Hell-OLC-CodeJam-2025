@@ -822,11 +822,77 @@ def generate_regular_polygon(sides, center_x, center_y, radius):
         vertices.append((x, y))
     return vertices
 
+class BackgroundShape:
+    def __init__(self):
+        self.lifetime = random.randint(60, 180)  # 1-3 seconds at 60 FPS
+        self.alpha = 0
+        self.fade_in = True
+        self.x = random.randint(0, SCREEN_WIDTH)
+        self.y = random.randint(0, SCREEN_HEIGHT)
+        self.size = random.randint(30, 100)
+        
+        # Randomly choose between circle and polygon
+        self.is_circle = random.choice([True, False])
+        if not self.is_circle:
+            # Create random polygon vertices (3 to 6 sides)
+            num_vertices = random.randint(3, 6)
+            self.vertices = []
+            for i in range(num_vertices):
+                angle = 2 * math.pi * i / num_vertices
+                x = self.x + self.size * math.cos(angle)
+                y = self.y + self.size * math.sin(angle)
+                self.vertices.append((x, y))
+
+    def update(self):
+        if self.fade_in:
+            self.alpha = min(30, self.alpha + 1)  # Max alpha of 30 (very transparent)
+            if self.alpha >= 30:
+                self.fade_in = False
+        else:
+            self.alpha = max(0, self.alpha - 1)
+        
+        self.lifetime -= 1
+        return self.lifetime > 0
+
+    def draw(self, screen):
+        shape_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        if self.is_circle:
+            pygame.draw.circle(shape_surface, (255, 255, 255, self.alpha), (self.x, self.y), self.size)
+        else:
+            pygame.draw.polygon(shape_surface, (255, 255, 255, self.alpha), self.vertices)
+        screen.blit(shape_surface, (0, 0))
+
+# List to keep track of background shapes
+background_shapes = []
+background_time = 0
+
 def create_gradient_background(screen):
+    global background_time, background_shapes
+    
+    # Update background time for color cycling (slower)
+    background_time += 0.002  # Reduced from 0.01 for slower cycling
+    
+    # Create cycling colors
     for y in range(SCREEN_HEIGHT):
-        intensity = int(15 + 10 * math.sin(y * 0.01))
-        color = (intensity, intensity // 2, intensity * 2)
+        # Create bright cycling colors using sine waves with different phases
+        # Minimum value increased to 180 to ensure only bright colors
+        r = int(180 + 75 * math.sin(background_time + y * 0.001))
+        g = int(180 + 75 * math.sin(background_time * 1.3 + y * 0.001))
+        b = int(180 + 75 * math.sin(background_time * 0.7 + y * 0.001))
+        color = (r, g, b)
         pygame.draw.line(screen, color, (0, y), (SCREEN_WIDTH, y))
+    
+    # Manage background shapes
+    # Remove expired shapes
+    background_shapes = [shape for shape in background_shapes if shape.update()]
+    
+    # Add new shapes occasionally
+    if random.random() < 0.02:  # 2% chance each frame
+        background_shapes.append(BackgroundShape())
+    
+    # Draw all background shapes
+    for shape in background_shapes:
+        shape.draw(screen)
 
 def draw_crosshair(screen, pos, camera):
     """Draw aiming crosshair at mouse position"""
