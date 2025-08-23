@@ -11,13 +11,17 @@ space = pymunk.Space()
 space.damping = 0  # No automatic damping/friction
 space.collision_bias = 0.01  # Helps prevent shapes from sinking into each other
 
-# Load and start background music
-try:
-    pygame.mixer.music.load('assets/soundtrack.ogg')
-    pygame.mixer.music.play(-1)  # -1 means loop indefinitely
-    pygame.mixer.music.set_volume(0.5)  # Set to 50% volume
-except Exception as e:
-    print(f"Could not load music: {e}")
+# Function to start/restart background music
+def start_background_music():
+    try:
+        pygame.mixer.music.load('assets/soundtrack.ogg')
+        pygame.mixer.music.play(-1)  # -1 means loop indefinitely
+        pygame.mixer.music.set_volume(0.5)  # Set to 50% volume
+    except Exception as e:
+        print(f"Could not load music: {e}")
+
+# Start background music initially
+start_background_music()
 
 # Constants
 SCREEN_WIDTH = 1920 
@@ -1123,6 +1127,10 @@ class Game:
         self.game_over = False  # New game over state
         self.win_time = 0
         self.shapes_frozen = False
+        
+        # Restart background music if it was stopped
+        if not pygame.mixer.music.get_busy():
+            start_background_music()
         
         # Health system and visual feedback
         self.screen_flash_timer = 0  # For damage flash effect
