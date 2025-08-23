@@ -682,11 +682,11 @@ class Shape:
             # Angry frown (downward arc)
             frown_rect = pygame.Rect(
                 screen_center[0] - camera.scale_size(12 * face_scale),
-                screen_center[1] + camera.scale_size(8 * face_scale),
+                screen_center[1] + camera.scale_size(2 * face_scale),  # Moved up slightly
                 camera.scale_size(24 * face_scale),
                 camera.scale_size(12 * face_scale)
             )
-            pygame.draw.arc(screen, RED, frown_rect, math.pi, 2 * math.pi, max(1, int(camera.scale_size(2 * face_scale))))
+            pygame.draw.arc(screen, RED, frown_rect, 0, math.pi, max(1, int(camera.scale_size(2 * face_scale))))  # Changed angles for downward arc
     
     def get_total_perimeter(self):
         if self.is_circle:
