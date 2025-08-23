@@ -346,8 +346,8 @@ class Character:
         
         # Happy smile
         smile_size = camera.scale_size(8)
-        smile_rect = pygame.Rect(screen_x - smile_size/2, screen_y + camera.scale_size(1), smile_size, camera.scale_size(5))
-        pygame.draw.arc(screen, BLACK, smile_rect, 0, math.pi, max(1, int(camera.scale_size(2))))
+        smile_rect = pygame.Rect(screen_x - smile_size/2, screen_y - camera.scale_size(1), smile_size, camera.scale_size(5))
+        pygame.draw.arc(screen, BLACK, smile_rect, math.pi, 2 * math.pi, max(1, int(camera.scale_size(2))))
         
         # Cheek blush for extra cuteness
         cheek_radius = camera.scale_size(2)
@@ -1103,8 +1103,16 @@ class Game:
             if i % 20 == 0:  # Print every 20 shapes for 104 total
                 print(f"Generated {i+1}/{num_shapes} shapes...")
         
-        # First, select a random starting shape for the character
-        char_start_shape = random.randint(0, len(self.shapes) - 1)
+        # First, find all happy shapes that could be starting positions
+        happy_shapes = [i for i, shape in enumerate(self.shapes) if shape.mood == 'happy']
+        if not happy_shapes:
+            # If no happy shapes (shouldn't happen due to 70% happy ratio), make one happy
+            char_start_shape = random.randint(0, len(self.shapes) - 1)
+            self.shapes[char_start_shape].mood = 'happy'
+        else:
+            # Select a random happy shape for starting position
+            char_start_shape = random.choice(happy_shapes)
+        
         start_shape = self.shapes[char_start_shape]
         start_pos = start_shape.get_position_on_perimeter(0.0)
         
