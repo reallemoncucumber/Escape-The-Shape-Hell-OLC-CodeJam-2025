@@ -122,6 +122,14 @@ class Harpoon:
         self.hit_shape = None
         self.max_distance = HARPOON_MAX_DISTANCE
         self.launch_pos = (0, 0)  # Store initial launch position for distance checks
+        
+        # Load harpoon sound effect
+        try:
+            self.launch_sound = pygame.mixer.Sound('assets/harpoon.ogg')
+            self.launch_sound.set_volume(0.4)  # Set to 40% volume to not overshadow music
+        except Exception as e:
+            print(f"Could not load harpoon sound: {e}")
+            self.launch_sound = None
     
     def launch(self, start_pos, target_pos):
         self.active = True
@@ -133,6 +141,10 @@ class Harpoon:
         self.target_pos = target_pos
         self.hit_pos = None
         self.hit_shape = None
+        
+        # Play harpoon launch sound
+        if self.launch_sound:
+            self.launch_sound.play()
         
         # Limit target to max distance
         dx = target_pos[0] - start_pos[0]
@@ -1312,6 +1324,16 @@ class Game:
                 self.game_won = True
                 self.win_time = pygame.time.get_ticks()
                 self.shapes_frozen = True
+                
+                # Play victory sound
+                try:
+                    victory_sound = pygame.mixer.Sound('assets/victory.ogg')
+                    victory_sound.set_volume(0.6)  # Set to 60% volume
+                    victory_sound.play()
+                    pygame.mixer.music.stop()  # Stop background music when victory occurs
+                except Exception as e:
+                    print(f"Could not play victory sound: {e}")
+                
                 print("GAME WON! Player found their mother!")
     
     def update(self):
