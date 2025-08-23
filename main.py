@@ -53,8 +53,8 @@ DARK_BLUE = (30, 60, 114)
 LIGHT_GREEN = (46, 204, 113)
 PINK = (231, 76, 60)
 
-# Mother shape special color - bright gold
-MOTHER_COLOR = (255, 215, 0)
+# Mother shape color is pure white, like her baby
+MOTHER_COLOR = WHITE  # (255, 255, 255)
 
 class Camera:
     def __init__(self, screen_width, screen_height):
@@ -553,7 +553,7 @@ class Shape:
         if self.is_mother:
             pulse_factor = 0.8 + 0.4 * math.sin(self.mother_pulse_time)
             
-            # Pulsating outer glow
+            # Pulsating outer glow - white with a slight hint of warmth
             glow_size = max(1, int(camera.scale_size(8 * pulse_factor)))
             if self.is_circle:
                 screen_center = camera.world_to_screen(self.center)
@@ -562,17 +562,18 @@ class Shape:
                 # Create glow surface with alpha
                 glow_surf = pygame.Surface((glow_radius * 2, glow_radius * 2), pygame.SRCALPHA)
                 alpha = int(100 * pulse_factor)
-                pygame.draw.circle(glow_surf, (*MOTHER_COLOR, alpha), 
+                # Using slightly warm white for glow (255, 255, 245)
+                pygame.draw.circle(glow_surf, (255, 255, 245, alpha), 
                                  (glow_radius, glow_radius), glow_radius)
                 screen.blit(glow_surf, (screen_center[0] - glow_radius, screen_center[1] - glow_radius))
             else:
-                # Polygon glow effect
+                # Polygon glow effect (should never happen now that mother is always circle)
                 center = self.get_center()
                 for v in self.vertices:
                     screen_pos = camera.world_to_screen(v)
                     glow_surf = pygame.Surface((20, 20), pygame.SRCALPHA)
                     alpha = int(150 * pulse_factor)
-                    pygame.draw.circle(glow_surf, (*MOTHER_COLOR, alpha), (10, 10), 10)
+                    pygame.draw.circle(glow_surf, (255, 255, 245, alpha), (10, 10), 10)
                     screen.blit(glow_surf, (screen_pos[0] - 10, screen_pos[1] - 10))
             
             # Animate the main shape width
@@ -605,13 +606,32 @@ class Shape:
         if self.is_circle:
             screen_center = camera.world_to_screen(self.center)
             screen_radius = camera.scale_size(self.radius)
-            pygame.draw.circle(screen, color, 
-                             (int(screen_center[0]), int(screen_center[1])), 
-                             int(screen_radius), width)
+            
+            if self.is_mother:
+                # Filled circle for mother
+                pygame.draw.circle(screen, color, 
+                                 (int(screen_center[0]), int(screen_center[1])), 
+                                 int(screen_radius))
+                # Add outline
+                pygame.draw.circle(screen, BLACK,
+                                 (int(screen_center[0]), int(screen_center[1])), 
+                                 int(screen_radius), max(1, int(camera.scale_size(2))))
+            else:
+                # Just outline for regular shapes
+                pygame.draw.circle(screen, color, 
+                                 (int(screen_center[0]), int(screen_center[1])), 
+                                 int(screen_radius), width)
         else:
             screen_vertices = [camera.world_to_screen(v) for v in self.vertices]
             if len(screen_vertices) > 2:
-                pygame.draw.polygon(screen, color, screen_vertices, width)
+                if self.is_mother:
+                    # Filled polygon for mother
+                    pygame.draw.polygon(screen, color, screen_vertices)
+                    # Add outline
+                    pygame.draw.polygon(screen, BLACK, screen_vertices, max(1, int(camera.scale_size(2))))
+                else:
+                    # Just outline for regular shapes
+                    pygame.draw.polygon(screen, color, screen_vertices, width)
         
         # Draw face based on mood
         self.draw_face(screen, camera)
@@ -657,6 +677,17 @@ class Shape:
                 camera.scale_size(15 * face_scale)
             )
             pygame.draw.arc(screen, BLACK, smile_rect, math.pi, 2 * math.pi, max(1, int(camera.scale_size(2 * face_scale))))
+            
+            # Add blush to mother shape
+            if self.is_mother:
+                cheek_radius = camera.scale_size(6 * face_scale)
+                cheek_color = (255, 200, 200)  # Light pink
+                left_cheek = (int(screen_center[0] - camera.scale_size(20 * face_scale)), 
+                             int(screen_center[1] + camera.scale_size(5 * face_scale)))
+                right_cheek = (int(screen_center[0] + camera.scale_size(20 * face_scale)), 
+                              int(screen_center[1] + camera.scale_size(5 * face_scale)))
+                pygame.draw.circle(screen, cheek_color, left_cheek, int(cheek_radius))
+                pygame.draw.circle(screen, cheek_color, right_cheek, int(cheek_radius))
             
         elif self.mood == 'angry':
             # Draw angry face: angled eyebrows and frown
@@ -1116,43 +1147,55 @@ class Game:
         start_shape = self.shapes[char_start_shape]
         start_pos = start_shape.get_position_on_perimeter(0.0)
         
-        # Now select mother shape ensuring it's far enough away
+        # Create a new mother shape at a distant position
         min_distance = 800  # Minimum distance in pixels between start and mother
-        valid_mother_shapes = []
-        
-        for i, shape in enumerate(self.shapes):
-            if i == char_start_shape:
-                continue  # Can't be the same shape
+        max_attempts = 100
+        best_distance = 0
+        best_position = None
+        margin = 100
+        self.mother_shape_id = None
+
+        # Try to find a valid position for mother that's far from start
+        for _ in range(max_attempts):
+            # Random position in expanded world
+            x = random.randint(margin, WORLD_WIDTH - margin)
+            y = random.randint(margin, WORLD_HEIGHT - margin)
             
-            # Calculate distance between starting position and this potential mother
-            mother_center = shape.get_center()
-            distance = math.sqrt((start_pos[0] - mother_center[0])**2 + 
-                               (start_pos[1] - mother_center[1])**2)
+            # Calculate distance from start position
+            distance = math.sqrt((start_pos[0] - x)**2 + (start_pos[1] - y)**2)
             
-            if distance >= min_distance:
-                valid_mother_shapes.append(i)
+            # Check if position is valid and far enough
+            if distance >= min_distance and is_position_valid(x, y, 80, self.shapes):
+                # Create mother shape here
+                mother_shape = Shape(center=(x, y), radius=80, color=WHITE, shape_id=len(self.shapes), is_mother=True)
+                mother_shape.mood = 'happy'  # Mother is always happy
+                self.shapes.append(mother_shape)
+                self.mother_shape_id = len(self.shapes) - 1
+                break
+            
+            # Keep track of best position if we can't find an ideal one
+            if distance > best_distance and is_position_valid(x, y, 80, self.shapes):
+                best_distance = distance
+                best_position = (x, y)
         
-        # If we don't have enough valid distant shapes, reduce the requirement
-        if len(valid_mother_shapes) == 0:
-            min_distance = 400  # Fallback to smaller distance
-            for i, shape in enumerate(self.shapes):
-                if i == char_start_shape:
-                    continue
-                mother_center = shape.get_center()
-                distance = math.sqrt((start_pos[0] - mother_center[0])**2 + 
-                                   (start_pos[1] - mother_center[1])**2)
-                if distance >= min_distance:
-                    valid_mother_shapes.append(i)
-        
-        # Select mother from valid distant shapes
-        if valid_mother_shapes:
-            self.mother_shape_id = random.choice(valid_mother_shapes)
-        else:
-            # Last resort: pick any shape that's not the starting shape
-            self.mother_shape_id = (char_start_shape + len(self.shapes) // 2) % len(self.shapes)
-        
-        self.shapes[self.mother_shape_id].is_mother = True
-        self.shapes[self.mother_shape_id].color = MOTHER_COLOR
+        # If we couldn't find an ideal position, use the best one we found
+        if self.mother_shape_id is None and best_position is not None:
+            x, y = best_position
+            mother_shape = Shape(center=(x, y), radius=80, color=WHITE, shape_id=len(self.shapes), is_mother=True)
+            mother_shape.mood = 'happy'  # Mother is always happy
+            self.shapes.append(mother_shape)
+            self.mother_shape_id = len(self.shapes) - 1
+        elif self.mother_shape_id is None:
+            # Last resort: just place it somewhere valid
+            for _ in range(max_attempts):
+                x = random.randint(margin, WORLD_WIDTH - margin)
+                y = random.randint(margin, WORLD_HEIGHT - margin)
+                if is_position_valid(x, y, 80, self.shapes):
+                    mother_shape = Shape(center=(x, y), radius=80, color=WHITE, shape_id=len(self.shapes), is_mother=True)
+                    mother_shape.mood = 'happy'  # Mother is always happy
+                    self.shapes.append(mother_shape)
+                    self.mother_shape_id = len(self.shapes) - 1
+                    break
         
         # Calculate final distance for reporting
         mother_center = self.shapes[self.mother_shape_id].get_center()
