@@ -116,19 +116,19 @@ class Harpoon:
         self.launching = False
         self.retracting = False
         self.pulling_character = False
-        self.start_pos = (0, 0)
         self.current_pos = (0, 0)
         self.target_pos = (0, 0)
         self.hit_pos = None
         self.hit_shape = None
         self.max_distance = HARPOON_MAX_DISTANCE
+        self.launch_pos = (0, 0)  # Store initial launch position for distance checks
     
     def launch(self, start_pos, target_pos):
         self.active = True
         self.launching = True
         self.retracting = False
         self.pulling_character = False
-        self.start_pos = start_pos
+        self.launch_pos = start_pos  # Store initial position for distance checks
         self.current_pos = start_pos
         self.target_pos = target_pos
         self.hit_pos = None
@@ -145,7 +145,7 @@ class Harpoon:
                 start_pos[1] + dy * factor
             )
     
-    def update(self):
+    def update(self, character_pos):
         if not self.active:
             return
         
@@ -166,9 +166,9 @@ class Harpoon:
                 )
         
         elif self.retracting:
-            # Retract harpoon back to start
-            dx = self.start_pos[0] - self.current_pos[0]
-            dy = self.start_pos[1] - self.current_pos[1]
+            # Retract harpoon back to character's current position
+            dx = character_pos[0] - self.current_pos[0]
+            dy = character_pos[1] - self.current_pos[1]
             distance = math.sqrt(dx*dx + dy*dy)
             
             if distance < HARPOON_SPEED:
@@ -191,12 +191,12 @@ class Harpoon:
         self.retracting = False
         self.pulling_character = True
     
-    def draw(self, screen, camera):
+    def draw(self, screen, camera, character_pos):
         if not self.active:
             return
         
-        # Convert positions to screen coordinates
-        screen_start = camera.world_to_screen(self.start_pos)
+        # Convert positions to screen coordinates - always use current character position as start
+        screen_start = camera.world_to_screen(character_pos)
         
         # Draw harpoon line
         if self.pulling_character and self.hit_pos:
@@ -1366,8 +1366,8 @@ class Game:
         # Update camera to follow character
         self.camera.update(self.character.x, self.character.y)
         
-        # Update harpoon
-        self.harpoon.update()
+        # Update harpoon with current character position
+        self.harpoon.update((self.character.x, self.character.y))
         
         # Check for harpoon collisions
         if self.harpoon.launching and not self.harpoon.hit_shape:
@@ -1434,8 +1434,8 @@ class Game:
                              (int(char_screen_pos[0]), int(char_screen_pos[1])), 
                              int(range_radius), max(1, int(self.camera.scale_size(1))))
         
-        # Draw harpoon
-        self.harpoon.draw(self.screen, self.camera)
+        # Draw harpoon with current character position
+        self.harpoon.draw(self.screen, self.camera, (self.character.x, self.character.y))
         
         # Draw character
         self.character.draw(self.screen, self.camera)
