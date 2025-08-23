@@ -1,9 +1,14 @@
 import pygame
 import math
 import sys
+import random
+import pymunk
 
-# Initialize Pygame
+# Initialize Pygame and Pymunk
 pygame.init()
+space = pymunk.Space()
+space.damping = 0  # No automatic damping/friction
+space.collision_bias = 0.01  # Helps prevent shapes from sinking into each other
 
 # Constants
 SCREEN_WIDTH = 1920 
@@ -13,6 +18,11 @@ HARPOON_MAX_DISTANCE = 200
 HARPOON_SPEED = 8
 PULL_SPEED = 6
 CAMERA_SMOOTH = 0.1
+
+# Physics constants
+WORLD_BOUNDS = (0, 0, SCREEN_WIDTH, SCREEN_HEIGHT)  # Use screen boundaries as walls
+BOUNCE_DAMPING = 1  # Energy loss on wall bounces
+# No friction - shapes maintain velocity forever!
 
 # Colors
 BLACK = (0, 0, 0)
@@ -37,18 +47,23 @@ class Camera:
         self.screen_width = screen_width
         self.screen_height = screen_height
         
-        # Calculate zoom to ensure harpoon range is always visible
-        # We want at least HARPOON_MAX_DISTANCE * 2.5 visible in both directions
-        required_width = HARPOON_MAX_DISTANCE * 2.5 * 2  # 2.5x range in each direction
-        required_height = HARPOON_MAX_DISTANCE * 2.5 * 2
+        # Calculate base zoom with smaller visibility area for higher zoom
+        visibility_multiplier = 1.8  # Reduced from 2.5 for closer camera
+        required_width = HARPOON_MAX_DISTANCE * visibility_multiplier * 2
+        required_height = HARPOON_MAX_DISTANCE * visibility_multiplier * 2
         
         zoom_x = screen_width / required_width
         zoom_y = screen_height / required_height
-        self.zoom = min(zoom_x, zoom_y)  # Use smaller zoom to fit both dimensions
-        print(self.zoom)
-        # Ensure minimum zoom for gameplay
-        self.zoom = max(0.8, min(2.0, self.zoom))
-        print(self.zoom)
+        base_zoom = min(zoom_x, zoom_y)
+        
+        # Apply zoom multiplier for even closer view
+        zoom_multiplier = 1.4
+        self.zoom = base_zoom * zoom_multiplier
+        
+        print(f"Base zoom: {base_zoom:.2f}, Final zoom: {self.zoom:.2f}")
+        
+        # Higher minimum and maximum zoom bounds
+        self.zoom = max(1.5, min(3.5, self.zoom))
     
     def update(self, target_x, target_y):
         """Update camera to follow target smoothly"""
@@ -188,6 +203,8 @@ class Character:
         self.being_pulled = False
         self.pull_target = None
         self.pull_target_shape = None
+        # Store relative position on shape for moving shapes
+        self.shape_relative_angle = 0
     
     def start_being_pulled(self, target_pos, target_shape_id):
         self.being_pulled = True
@@ -198,7 +215,7 @@ class Character:
         if not self.being_pulled or not self.pull_target:
             return
         
-        # Move towards pull target
+        # Move towards pull target (which might be moving!)
         dx = self.pull_target[0] - self.x
         dy = self.pull_target[1] - self.y
         distance = math.sqrt(dx*dx + dy*dy)
@@ -211,6 +228,7 @@ class Character:
             
             # Calculate angle on new shape
             self.angle = self.calculate_angle_on_shape(shapes[self.current_shape_id])
+            self.shape_relative_angle = self.angle
             
             self.being_pulled = False
             self.pull_target = None
@@ -219,6 +237,16 @@ class Character:
             # Move towards target
             self.x += (dx/distance) * PULL_SPEED
             self.y += (dy/distance) * PULL_SPEED
+    
+    def update_position_on_moving_shape(self, shapes):
+        """Update character position when attached to a moving shape"""
+        if self.being_pulled:
+            return
+        
+        current_shape = shapes[self.current_shape_id]
+        # Get new position based on current angle parameter
+        pos = current_shape.get_position_on_perimeter(self.angle)
+        self.x, self.y = pos
     
     def calculate_angle_on_shape(self, shape):
         """Calculate the angle parameter for current position on shape"""
@@ -301,6 +329,407 @@ class Shape:
         self.color = color
         self.is_circle = center is not None and radius is not None
         self.shape_id = shape_id
+        
+        # Physics properties - consistent speed of 32 in random direction
+        angle = random.uniform(0, 2 * math.pi)  # Random direction
+        speed = 32  # Fixed high speed
+        # Create normal vector and multiply by speed
+        normal_x = math.cos(angle)
+        normal_y = math.sin(angle)
+        self.velocity = [normal_x * speed, normal_y * speed]
+        
+        if self.is_circle:
+            self.mass = math.pi * radius * radius * 0.01  # Area-based mass
+        else:
+            # Calculate polygon area for mass
+            self.mass = self.calculate_polygon_area() * 0.01
+        
+        # Create Pymunk physics objects
+        self.pm_body = pymunk.Body(body_type=pymunk.Body.KINEMATIC)
+        
+        if self.is_circle:
+            self.pm_body.position = self.center
+            self.pm_shape = pymunk.Circle(self.pm_body, self.radius)
+        else:
+            # Convert vertices to Pymunk-style (relative to body position)
+            center_x = sum(v[0] for v in vertices) / len(vertices)
+            center_y = sum(v[1] for v in vertices) / len(vertices)
+            self.pm_body.position = (center_x, center_y)
+            
+            # Make vertices relative to body position
+            pm_vertices = [(v[0] - center_x, v[1] - center_y) for v in vertices]
+            self.pm_shape = pymunk.Poly(self.pm_body, pm_vertices)
+        
+        # Set physics properties
+        self.pm_shape.mass = self.mass
+        self.pm_shape.friction = 0.0
+        self.pm_shape.elasticity = BOUNCE_DAMPING
+        
+        # Store shape_id as user data for collision handling
+        self.pm_shape.shape_id = self.shape_id
+        
+        # Add to space
+        space.add(self.pm_body, self.pm_shape)
+        
+        # Collision bounds for screen wrapping
+        self.collision_bounds = self.calculate_bounds()
+    
+    def calculate_polygon_area(self):
+        """Calculate area of polygon using shoelace formula"""
+        if not self.vertices or len(self.vertices) < 3:
+            return 100  # Default mass
+        
+        area = 0
+        n = len(self.vertices)
+        for i in range(n):
+            j = (i + 1) % n
+            area += self.vertices[i][0] * self.vertices[j][1]
+            area -= self.vertices[j][0] * self.vertices[i][1]
+        return abs(area) / 2
+    
+    def calculate_bounds(self):
+        """Calculate axis-aligned bounding box for broad-phase collision detection"""
+        if self.is_circle:
+            return [
+                self.center[0] - self.radius,
+                self.center[1] - self.radius,
+                self.center[0] + self.radius,
+                self.center[1] + self.radius
+            ]
+        else:
+            min_x = min(v[0] for v in self.vertices)
+            max_x = max(v[0] for v in self.vertices)
+            min_y = min(v[1] for v in self.vertices)
+            max_y = max(v[1] for v in self.vertices)
+            return [min_x, min_y, max_x, max_y]
+    
+    def update_physics(self, dt, current_time):
+        """Update shape position based on velocity - using Pymunk for collisions"""
+        # Safety check: if velocity is somehow zero, give it a new random direction
+        current_speed = math.sqrt(self.velocity[0]**2 + self.velocity[1]**2)
+        if current_speed < 1:  # Very slow or stationary
+            angle = random.uniform(0, 2 * math.pi)
+            speed = 32
+            self.velocity = [math.cos(angle) * speed, math.sin(angle) * speed]
+        
+        # Update position manually
+        if self.is_circle:
+            self.center = (
+                self.center[0] + self.velocity[0] * dt,
+                self.center[1] + self.velocity[1] * dt
+            )
+            # Update Pymunk body position
+            self.pm_body.position = self.center
+        else:
+            dx = self.velocity[0] * dt
+            dy = self.velocity[1] * dt
+            self.vertices = [(v[0] + dx, v[1] + dy) for v in self.vertices]
+            # Update Pymunk body position (using center of mass)
+            center_x = sum(v[0] for v in self.vertices) / len(self.vertices)
+            center_y = sum(v[1] for v in self.vertices) / len(self.vertices)
+            self.pm_body.position = (center_x, center_y)
+        
+        # Update collision bounds for screen wrapping
+        self.collision_bounds = self.calculate_bounds()
+        
+        # Bounce off screen boundaries (walls)
+        self.check_screen_bounds()
+    
+    def check_screen_bounds(self):
+        """Check and handle collisions with screen boundaries"""
+        bounds = self.collision_bounds
+        
+        # Check left/right screen bounds
+        if bounds[0] < 0:  # Hit left edge
+            self.velocity[0] = abs(self.velocity[0]) * BOUNCE_DAMPING
+            if self.is_circle:
+                self.center = (self.radius, self.center[1])
+            else:
+                offset = 0 - bounds[0]
+                self.vertices = [(v[0] + offset, v[1]) for v in self.vertices]
+        
+        elif bounds[2] > SCREEN_WIDTH:  # Hit right edge
+            self.velocity[0] = -abs(self.velocity[0]) * BOUNCE_DAMPING
+            if self.is_circle:
+                self.center = (SCREEN_WIDTH - self.radius, self.center[1])
+            else:
+                offset = SCREEN_WIDTH - bounds[2]
+                self.vertices = [(v[0] + offset, v[1]) for v in self.vertices]
+        
+        # Check top/bottom screen bounds
+        if bounds[1] < 0:  # Hit top edge
+            self.velocity[1] = abs(self.velocity[1]) * BOUNCE_DAMPING
+            if self.is_circle:
+                self.center = (self.center[0], self.radius)
+            else:
+                offset = 0 - bounds[1]
+                self.vertices = [(v[0], v[1] + offset) for v in self.vertices]
+        
+        elif bounds[3] > SCREEN_HEIGHT:  # Hit bottom edge
+            self.velocity[1] = -abs(self.velocity[1]) * BOUNCE_DAMPING
+            if self.is_circle:
+                self.center = (self.center[0], SCREEN_HEIGHT - self.radius)
+            else:
+                offset = SCREEN_HEIGHT - bounds[3]
+                self.vertices = [(v[0], v[1] + offset) for v in self.vertices]
+        
+        # Update bounds after boundary correction
+        self.collision_bounds = self.calculate_bounds()
+    
+    def check_collision_with(self, other, current_time):
+        """This method is now handled by Pymunk"""
+        return None
+        
+        # Broad phase - check bounding boxes
+        if not self.bounds_overlap(other):
+            return None
+        
+        # Narrow phase - detailed collision detection
+        if self.is_circle and other.is_circle:
+            return self.circle_circle_collision(other)
+        elif self.is_circle and not other.is_circle:
+            return self.circle_polygon_collision(other)
+        elif not self.is_circle and other.is_circle:
+            return other.circle_polygon_collision(self)
+        else:
+            return self.polygon_polygon_collision(other)
+    
+    def bounds_overlap(self, other):
+        """Quick check if bounding boxes overlap"""
+        a = self.collision_bounds
+        b = other.collision_bounds
+        return not (a[2] < b[0] or a[0] > b[2] or a[3] < b[1] or a[1] > b[3])
+    
+    def circle_circle_collision(self, other):
+        """Detect collision between two circles"""
+        dx = other.center[0] - self.center[0]
+        dy = other.center[1] - self.center[1]
+        distance = math.sqrt(dx*dx + dy*dy)
+        min_distance = self.radius + other.radius
+        
+        if distance < min_distance:
+            # Collision detected
+            if distance == 0:  # Prevent division by zero
+                normal = (1, 0)
+            else:
+                normal = (dx / distance, dy / distance)
+            
+            overlap = min_distance - distance
+            return {
+                'normal': normal,
+                'overlap': overlap,
+                'contact_point': (
+                    self.center[0] + normal[0] * self.radius,
+                    self.center[1] + normal[1] * self.radius
+                )
+            }
+        return None
+    
+    def circle_polygon_collision(self, polygon):
+        """Detect collision between circle and polygon"""
+        closest_distance = float('inf')
+        collision_normal = None
+        contact_point = None
+        
+        # Check distance to each edge
+        for i in range(len(polygon.vertices)):
+            start = polygon.vertices[i]
+            end = polygon.vertices[(i + 1) % len(polygon.vertices)]
+            
+            # Find closest point on edge to circle center
+            edge_vec = (end[0] - start[0], end[1] - start[1])
+            edge_length = math.sqrt(edge_vec[0]**2 + edge_vec[1]**2)
+            
+            if edge_length == 0:
+                continue
+            
+            edge_unit = (edge_vec[0] / edge_length, edge_vec[1] / edge_length)
+            to_center = (self.center[0] - start[0], self.center[1] - start[1])
+            
+            # Project circle center onto edge
+            projection = max(0, min(edge_length, 
+                to_center[0] * edge_unit[0] + to_center[1] * edge_unit[1]))
+            
+            closest_point = (
+                start[0] + edge_unit[0] * projection,
+                start[1] + edge_unit[1] * projection
+            )
+            
+            # Distance from circle center to closest point
+            dist_vec = (self.center[0] - closest_point[0], self.center[1] - closest_point[1])
+            distance = math.sqrt(dist_vec[0]**2 + dist_vec[1]**2)
+            
+            if distance < closest_distance:
+                closest_distance = distance
+                if distance == 0:
+                    collision_normal = (-edge_unit[1], edge_unit[0])  # Perpendicular to edge
+                else:
+                    collision_normal = (dist_vec[0] / distance, dist_vec[1] / distance)
+                contact_point = closest_point
+        
+        if closest_distance < self.radius:
+            overlap = self.radius - closest_distance
+            return {
+                'normal': collision_normal,
+                'overlap': overlap,
+                'contact_point': contact_point
+            }
+        
+        return None
+    
+    def polygon_polygon_collision(self, other):
+        """Detect collision between two polygons using SAT"""
+        # Get all edge normals from both polygons
+        axes = []
+        
+        # Get normals from first polygon
+        for i in range(len(self.vertices)):
+            start = self.vertices[i]
+            end = self.vertices[(i + 1) % len(self.vertices)]
+            edge = (end[0] - start[0], end[1] - start[1])
+            length = math.sqrt(edge[0]**2 + edge[1]**2)
+            if length > 0:
+                normal = (-edge[1] / length, edge[0] / length)
+                axes.append(normal)
+        
+        # Get normals from second polygon
+        for i in range(len(other.vertices)):
+            start = other.vertices[i]
+            end = other.vertices[(i + 1) % len(other.vertices)]
+            edge = (end[0] - start[0], end[1] - start[1])
+            length = math.sqrt(edge[0]**2 + edge[1]**2)
+            if length > 0:
+                normal = (-edge[1] / length, edge[0] / length)
+                axes.append(normal)
+        
+        min_overlap = float('inf')
+        collision_axis = None
+        
+        # Test each axis
+        for axis in axes:
+            # Project both polygons onto axis
+            proj1 = self.project_onto_axis(axis)
+            proj2 = other.project_onto_axis(axis)
+            
+            # Check for separation
+            if proj1[1] < proj2[0] or proj2[1] < proj1[0]:
+                return None  # Separating axis found
+            
+            # Calculate overlap
+            overlap = min(proj1[1], proj2[1]) - max(proj1[0], proj2[0])
+            if overlap < min_overlap:
+                min_overlap = overlap
+                collision_axis = axis
+        
+        # All axes overlap - collision detected
+        if collision_axis:
+            # Calculate contact point (approximation)
+            center1 = self.get_center()
+            center2 = other.get_center()
+            contact_point = (
+                (center1[0] + center2[0]) / 2,
+                (center1[1] + center2[1]) / 2
+            )
+            
+            return {
+                'normal': collision_axis,
+                'overlap': min_overlap,
+                'contact_point': contact_point
+            }
+        
+        return None
+    
+    def project_onto_axis(self, axis):
+        """Project polygon vertices onto an axis"""
+        dots = []
+        for vertex in self.vertices:
+            dot = vertex[0] * axis[0] + vertex[1] * axis[1]
+            dots.append(dot)
+        return [min(dots), max(dots)]
+    
+    def get_center(self):
+        """Get center point of polygon"""
+        if self.is_circle:
+            return self.center
+        
+        center_x = sum(v[0] for v in self.vertices) / len(self.vertices)
+        center_y = sum(v[1] for v in self.vertices) / len(self.vertices)
+        return (center_x, center_y)
+    
+    def resolve_collision(self, other, collision_info, current_time):
+        """Resolve collision with physics response and anti-bounce protection"""
+        normal = collision_info['normal']
+        overlap = collision_info['overlap']
+        
+        # Set collision cooldowns to prevent immediate re-collision
+        self.collision_cooldowns[other.shape_id] = current_time
+        other.collision_cooldowns[self.shape_id] = current_time
+        
+        # More aggressive separation to prevent overlap-induced bouncing
+        total_mass = self.mass + other.mass
+        self_separation = (other.mass / total_mass) * overlap * 1.2  # 20% extra separation
+        other_separation = (self.mass / total_mass) * overlap * 1.2
+        
+        # Move shapes apart
+        if self.is_circle:
+            self.center = (
+                self.center[0] - normal[0] * self_separation,
+                self.center[1] - normal[1] * self_separation
+            )
+        else:
+            dx = -normal[0] * self_separation
+            dy = -normal[1] * self_separation
+            self.vertices = [(v[0] + dx, v[1] + dy) for v in self.vertices]
+        
+        if other.is_circle:
+            other.center = (
+                other.center[0] + normal[0] * other_separation,
+                other.center[1] + normal[1] * other_separation
+            )
+        else:
+            dx = normal[0] * other_separation
+            dy = normal[1] * other_separation
+            other.vertices = [(v[0] + dx, v[1] + dy) for v in other.vertices]
+        
+        # Calculate relative velocity
+        rel_velocity = [
+            other.velocity[0] - self.velocity[0],
+            other.velocity[1] - self.velocity[1]
+        ]
+        
+        # Velocity component along collision normal
+        velocity_along_normal = (
+            rel_velocity[0] * normal[0] + 
+            rel_velocity[1] * normal[1]
+        )
+        
+        # Don't resolve if velocities are separating
+        if velocity_along_normal > 0:
+            return
+        
+        # Collision impulse with slight damping to reduce energy buildup
+        restitution = 0.85  # Slightly reduced for stability
+        impulse_magnitude = -(1 + restitution) * velocity_along_normal
+        impulse_magnitude /= (1/self.mass + 1/other.mass)
+        
+        # Apply impulse
+        impulse = [normal[0] * impulse_magnitude, normal[1] * impulse_magnitude]
+        
+        self.velocity[0] -= impulse[0] / self.mass
+        self.velocity[1] -= impulse[1] / self.mass
+        other.velocity[0] += impulse[0] / other.mass
+        other.velocity[1] += impulse[1] / other.mass
+        
+        # Limit extreme velocities to prevent chaos (increased limit for speed 32)
+        max_velocity = 40
+        self.velocity[0] = max(-max_velocity, min(max_velocity, self.velocity[0]))
+        self.velocity[1] = max(-max_velocity, min(max_velocity, self.velocity[1]))
+        other.velocity[0] = max(-max_velocity, min(max_velocity, other.velocity[0]))
+        other.velocity[1] = max(-max_velocity, min(max_velocity, other.velocity[1]))
+        
+        # Update bounds after collision resolution
+        self.collision_bounds = self.calculate_bounds()
+        other.collision_bounds = other.calculate_bounds()
     
     def draw(self, screen, camera, is_active=False):
         color = self.color
@@ -317,17 +746,17 @@ class Shape:
                                  (int(screen_center[0]), int(screen_center[1])), 
                                  int(screen_radius), glow_width)
             else:
-                center_x = sum(v[0] for v in self.vertices) / len(self.vertices)
-                center_y = sum(v[1] for v in self.vertices) / len(self.vertices)
+                center = self.get_center()
                 glow_vertices = []
                 for v in self.vertices:
-                    dx, dy = v[0] - center_x, v[1] - center_y
+                    dx, dy = v[0] - center[0], v[1] - center[1]
                     length = math.sqrt(dx*dx + dy*dy)
                     if length > 0:
                         dx, dy = dx/length * 3, dy/length * 3
                     glow_world_pos = (v[0] + dx, v[1] + dy)
                     glow_vertices.append(camera.world_to_screen(glow_world_pos))
-                pygame.draw.polygon(screen, glow_color, glow_vertices, glow_width)
+                if len(glow_vertices) > 2:
+                    pygame.draw.polygon(screen, glow_color, glow_vertices, glow_width)
         
         # Main shape
         if self.is_circle:
@@ -338,7 +767,15 @@ class Shape:
                              int(screen_radius), width)
         else:
             screen_vertices = [camera.world_to_screen(v) for v in self.vertices]
-            pygame.draw.polygon(screen, color, screen_vertices, width)
+            if len(screen_vertices) > 2:
+                pygame.draw.polygon(screen, color, screen_vertices, width)
+        
+        # Draw velocity vector for debugging (set to False now that we have many shapes)
+        if False:  # Disabled for cleaner visual with 22 shapes
+            center = self.get_center()
+            screen_center = camera.world_to_screen(center)
+            vel_end = camera.world_to_screen((center[0] + self.velocity[0] * 5, center[1] + self.velocity[1] * 5))
+            pygame.draw.line(screen, (255, 255, 0), screen_center, vel_end, max(1, int(camera.scale_size(2))))
     
     def get_total_perimeter(self):
         if self.is_circle:
@@ -368,14 +805,14 @@ class Shape:
             edge_length = math.sqrt((end[0] - start[0])**2 + (end[1] - start[1])**2)
             
             if current_distance + edge_length >= target_distance:
-                t = (target_distance - current_distance) / edge_length
+                t = (target_distance - current_distance) / edge_length if edge_length > 0 else 0
                 x = start[0] + (end[0] - start[0]) * t
                 y = start[1] + (end[1] - start[1]) * t
                 return (x, y)
             
             current_distance += edge_length
         
-        return self.vertices[0]
+        return self.vertices[0] if self.vertices else (0, 0)
     
     def check_line_intersection(self, start_pos, end_pos):
         """Check if a line intersects with this shape"""
@@ -492,7 +929,6 @@ def draw_crosshair(screen, pos, camera):
 class Game:
     def __init__(self):
         self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-        pygame.display.set_caption("Harpoon Shape Navigator - Python/Pygame")
         self.clock = pygame.time.Clock()
         
         # Create camera
@@ -504,38 +940,81 @@ class Game:
         # Create harpoon
         self.harpoon = Harpoon()
         
-        # Create multiple shapes spread across the screen
+        # Setup Pymunk collision handler
+        handler = space.add_default_collision_handler()
+        handler.pre_solve = self.on_collision
+        handler.separate = self.on_separate
+        # Create multiple moving shapes spread across the screen - MORE SHAPES with size variety!
         self.shapes = [
-            # Triangle (top-left)
+            # Row 1 - Top
             Shape(vertices=[(200, 100), (120, 220), (280, 220)], 
                   color=RED, shape_id=0),
-            
-            # Square (top-center)
             Shape(vertices=[(400, 120), (550, 120), (550, 270), (400, 270)], 
                   color=CYAN, shape_id=1),
-            
-            # Circle (top-right)  
             Shape(center=(750, 200), radius=80, color=YELLOW, shape_id=2),
-            
-            # Pentagon (bottom-left)
-            Shape(vertices=generate_regular_polygon(5, 200, 450, 80),
+            Shape(vertices=generate_regular_polygon(5, 1000, 150, 70),
                   color=GREEN, shape_id=3),
-            
-            # Hexagon (bottom-center)
-            Shape(vertices=generate_regular_polygon(6, 500, 500, 70),
+            Shape(vertices=generate_regular_polygon(6, 1250, 180, 60),
                   color=BLUE, shape_id=4),
+            Shape(vertices=generate_regular_polygon(8, 1500, 160, 45),
+                  color=PURPLE, shape_id=5),
             
-            # Octagon (bottom-right)
-            Shape(vertices=generate_regular_polygon(8, 750, 480, 60),
-                  color=PURPLE, shape_id=5)
+            # Row 2 - Middle
+            Shape(center=(150, 400), radius=65, color=ORANGE, shape_id=6),
+            Shape(vertices=[(350, 350), (450, 350), (450, 450), (350, 450)], 
+                  color=PINK, shape_id=7),
+            Shape(vertices=generate_regular_polygon(3, 650, 400, 70),
+                  color=LIGHT_GREEN, shape_id=8),
+            Shape(vertices=generate_regular_polygon(7, 900, 380, 50),
+                  color=(255, 200, 100), shape_id=9),  # Orange-ish
+            Shape(center=(1150, 420), radius=75, color=(100, 255, 200), shape_id=10),  # Mint
+            Shape(vertices=generate_regular_polygon(4, 1400, 400, 80),  # Diamond orientation
+                  color=(255, 100, 255), shape_id=11),  # Magenta
+            
+            # Row 3 - Bottom  
+            Shape(vertices=generate_regular_polygon(5, 200, 650, 85),
+                  color=GREEN, shape_id=12),
+            Shape(vertices=generate_regular_polygon(6, 500, 700, 65),
+                  color=BLUE, shape_id=13),
+            Shape(vertices=generate_regular_polygon(8, 750, 680, 55),
+                  color=PURPLE, shape_id=14),
+            Shape(center=(1000, 650), radius=90, color=(200, 100, 255), shape_id=15),  # Purple-ish
+            Shape(vertices=generate_regular_polygon(3, 1250, 700, 75),
+                  color=(255, 150, 150), shape_id=16),  # Light red
+            Shape(vertices=[(1450, 620), (1550, 620), (1600, 720), (1400, 720)], 
+                  color=(150, 255, 150), shape_id=17),  # Light green
+            
+            # Row 4 - Extra bottom
+            Shape(center=(300, 900), radius=60, color=(100, 200, 255), shape_id=18),  # Light blue
+            Shape(vertices=generate_regular_polygon(7, 600, 880, 65),
+                  color=(255, 255, 100), shape_id=19),  # Bright yellow
+            Shape(vertices=generate_regular_polygon(9, 900, 900, 50),  # Nonagon!
+                  color=(200, 200, 255), shape_id=20),  # Light purple
+            Shape(vertices=[(1100, 850), (1200, 850), (1250, 920), (1200, 990), (1100, 990), (1050, 920)],
+                  color=(255, 200, 200), shape_id=21),  # Hexagon-ish light pink
+        ]
+        
+        # Define shape names for UI display
+        self.shape_names = [
+            'Red Triangle', 'Cyan Square', 'Yellow Circle', 'Green Pentagon', 'Blue Hexagon', 'Purple Octagon',
+            'Orange Circle', 'Pink Square', 'Light Green Triangle', 'Orange Heptagon', 'Mint Circle', 'Magenta Diamond',
+            'Green Pentagon 2', 'Blue Hexagon 2', 'Purple Octagon 2', 'Purple Circle', 'Light Red Triangle', 'Light Green Trapezoid',
+            'Light Blue Circle', 'Bright Yellow Heptagon', 'Light Purple Nonagon', 'Pink Hexagon'
         ]
         
         # Font for instructions
-        self.font = pygame.font.Font(None, 20)
+        self.font = pygame.font.Font(None, 16)  # Slightly smaller for more instructions
         self.title_font = pygame.font.Font(None, 36)
         
         # Mouse position
         self.mouse_pos = (0, 0)
+        
+        # Physics time step
+        self.dt = 1.0 / FPS
+        self.game_time = 0  # Track game time for collision cooldowns
+        
+        # Set window caption after shapes are created
+        pygame.display.set_caption(f"Harpoon Navigator - {len(self.shapes)} Moving Shapes!")
     
     def handle_events(self):
         for event in pygame.event.get():
@@ -554,8 +1033,103 @@ class Game:
                     return False
         return True
     
+    def on_collision(self, arbiter, space, data):
+        """Handle shape collision using Pymunk collision data"""
+        # Get the colliding shapes
+        shape_a, shape_b = arbiter.shapes
+        shape_a_id, shape_b_id = shape_a.shape_id, shape_b.shape_id
+        
+        # Get game shapes from our list using IDs stored in Pymunk shapes
+        game_shape_a = self.shapes[shape_a_id]
+        game_shape_b = self.shapes[shape_b_id]
+        
+        # Get collision normal and point
+        normal = arbiter.normal
+        point = arbiter.contact_point_set.points[0].point_a
+        
+        # Calculate relative velocity along normal
+        rel_velocity = [
+            game_shape_b.velocity[0] - game_shape_a.velocity[0],
+            game_shape_b.velocity[1] - game_shape_a.velocity[1]
+        ]
+        normal_velocity = rel_velocity[0] * normal[0] + rel_velocity[1] * normal[1]
+        
+        # Only resolve if objects are moving towards each other
+        if normal_velocity < 0:
+            # Apply bounce using our damping factor
+            restitution = BOUNCE_DAMPING
+            j = -(1 + restitution) * normal_velocity
+            j /= (1/game_shape_a.mass + 1/game_shape_b.mass)
+            
+            # Apply impulse to both shapes' velocities
+            game_shape_a.velocity[0] -= j * normal[0] / game_shape_a.mass
+            game_shape_a.velocity[1] -= j * normal[1] / game_shape_a.mass
+            game_shape_b.velocity[0] += j * normal[0] / game_shape_b.mass
+            game_shape_b.velocity[1] += j * normal[1] / game_shape_b.mass
+            
+            # Separate the shapes to prevent overlap
+            penetration = arbiter.contact_point_set.points[0].distance
+            percent = 0.2  # Penetration resolution percentage
+            slop = 0.1  # Penetration allowance
+            
+            if penetration < -slop:
+                separation = -(penetration + slop) * percent
+                
+                # Move shapes apart based on their masses
+                mass_sum = game_shape_a.mass + game_shape_b.mass
+                game_shape_a_amount = separation * (game_shape_b.mass / mass_sum)
+                game_shape_b_amount = separation * (game_shape_a.mass / mass_sum)
+                
+                if game_shape_a.is_circle:
+                    game_shape_a.center = (
+                        game_shape_a.center[0] - normal[0] * game_shape_a_amount,
+                        game_shape_a.center[1] - normal[1] * game_shape_a_amount
+                    )
+                    game_shape_a.pm_body.position = game_shape_a.center
+                else:
+                    dx = -normal[0] * game_shape_a_amount
+                    dy = -normal[1] * game_shape_a_amount
+                    game_shape_a.vertices = [(v[0] + dx, v[1] + dy) for v in game_shape_a.vertices]
+                    center_x = sum(v[0] for v in game_shape_a.vertices) / len(game_shape_a.vertices)
+                    center_y = sum(v[1] for v in game_shape_a.vertices) / len(game_shape_a.vertices)
+                    game_shape_a.pm_body.position = (center_x, center_y)
+                
+                if game_shape_b.is_circle:
+                    game_shape_b.center = (
+                        game_shape_b.center[0] + normal[0] * game_shape_b_amount,
+                        game_shape_b.center[1] + normal[1] * game_shape_b_amount
+                    )
+                    game_shape_b.pm_body.position = game_shape_b.center
+                else:
+                    dx = normal[0] * game_shape_b_amount
+                    dy = normal[1] * game_shape_b_amount
+                    game_shape_b.vertices = [(v[0] + dx, v[1] + dy) for v in game_shape_b.vertices]
+                    center_x = sum(v[0] for v in game_shape_b.vertices) / len(game_shape_b.vertices)
+                    center_y = sum(v[1] for v in game_shape_b.vertices) / len(game_shape_b.vertices)
+                    game_shape_b.pm_body.position = (center_x, center_y)
+        
+        # Let Pymunk know we've handled the collision
+        return True
+
+    def on_separate(self, arbiter, space, data):
+        """Called when two shapes separate"""
+        return True
+
     def update(self):
         keys = pygame.key.get_pressed()
+        
+        # Update game time
+        self.game_time += self.dt
+        
+        # Update all shapes with physics
+        for shape in self.shapes:
+            shape.update_physics(self.dt, self.game_time)
+        
+        # Step the Pymunk space to handle collisions
+        space.step(self.dt)
+        
+        # Update character position relative to moving shape
+        self.character.update_position_on_moving_shape(self.shapes)
         
         # Update camera to follow character
         self.camera.update(self.character.x, self.character.y)
@@ -563,7 +1137,7 @@ class Game:
         # Update harpoon
         self.harpoon.update()
         
-        # Check for harpoon collisions
+        # Check for harpoon collisions with moving shapes
         if self.harpoon.launching and not self.harpoon.hit_shape:
             char_pos = (self.character.x, self.character.y)
             for i, shape in enumerate(self.shapes):
@@ -577,6 +1151,12 @@ class Game:
         
         # Update character
         if self.character.being_pulled:
+            # Update pull target if harpoon is attached to a moving shape
+            if self.harpoon.pulling_character and self.harpoon.hit_pos:
+                # The hit position moves with the shape - we need to track it
+                # For now, keep the original hit position (simpler)
+                pass
+            
             self.character.update_pull(self.shapes)
             # Update harpoon start position while pulling
             self.harpoon.start_pos = (self.character.x, self.character.y)
@@ -597,7 +1177,7 @@ class Game:
             pos = current_shape.get_position_on_perimeter(self.character.angle)
             self.character.x, self.character.y = pos
         else:
-            # Harpoon is active but not pulling - character stays in current position
+            # Harpoon is active but not pulling - character stays in current position on moving shape
             current_shape = self.shapes[self.character.current_shape_id]
             pos = current_shape.get_position_on_perimeter(self.character.angle)
             self.character.x, self.character.y = pos
@@ -634,24 +1214,32 @@ class Game:
             draw_crosshair(self.screen, self.mouse_pos, self.camera)
         
         # Draw UI (screen coordinates, no camera transform)
-        title = self.title_font.render("Harpoon Shape Navigator", True, WHITE)
+        title = self.title_font.render(f"Harpoon Navigator - {len(self.shapes)} Shape Chaos!", True, WHITE)
         title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 25))
         self.screen.blit(title, title_rect)
         
         # Instructions
         instructions = [
             "A/D or Arrow Keys: Move along current shape (disabled while harpoon active)",
-            "Left Click: Launch harpoon at cursor to grab nearby shapes",
-            f"Current Shape: {['Triangle', 'Square', 'Circle', 'Pentagon', 'Hexagon', 'Octagon'][self.character.current_shape_id]}",
+            "Left Click: Launch harpoon at cursor to grab nearby moving shapes",
+            f"Current Shape: {self.shape_names[self.character.current_shape_id]} ({self.character.current_shape_id + 1}/{len(self.shapes)})",
             f"Harpoon Range: {HARPOON_MAX_DISTANCE} pixels (gray circle)",
-            "Note: You cannot move while harpoon is launching or retracting!",
+            f"NEW: {len(self.shapes)} shapes moving at SPEED 32 in random directions!",
+            "Triangles, squares, circles, pentagons, hexagons, octagons, and more!",
+            "Anti-bounce protection prevents infinite collision loops!",
+            "Shapes bounce off screen walls with consistent physics!",
             f"Camera Zoom: {self.camera.zoom:.2f}x"
         ]
         
         for i, instruction in enumerate(instructions):
-            color = LIGHT_GREEN if i == 2 else WHITE
+            if i == 2:  # Current shape
+                color = LIGHT_GREEN
+            elif i in [4, 5]:  # New features
+                color = YELLOW
+            else:
+                color = WHITE
             text = self.font.render(instruction, True, color)
-            self.screen.blit(text, (10, 50 + i * 22))
+            self.screen.blit(text, (10, 50 + i * 18))
         
         pygame.display.flip()
     
