@@ -6,9 +6,18 @@ import pymunk
 
 # Initialize Pygame and Pymunk
 pygame.init()
+pygame.mixer.init()  # Initialize the sound system
 space = pymunk.Space()
 space.damping = 0  # No automatic damping/friction
 space.collision_bias = 0.01  # Helps prevent shapes from sinking into each other
+
+# Load and start background music
+try:
+    pygame.mixer.music.load('assets/soundtrack.ogg')
+    pygame.mixer.music.play(-1)  # -1 means loop indefinitely
+    pygame.mixer.music.set_volume(0.5)  # Set to 50% volume
+except Exception as e:
+    print(f"Could not load music: {e}")
 
 # Constants
 SCREEN_WIDTH = 1920 
