@@ -35,6 +35,8 @@ WORLD_BOUNDS = (0, 0, WORLD_WIDTH, WORLD_HEIGHT)
 
 # Physics constants
 BOUNCE_DAMPING = 1  # Energy loss on wall bounces
+DAMAGE_RATE = 25  # Health damage per second on angry shapes  
+HEAL_RATE = 15   # Health regeneration per second on happy shapes
 # No friction - shapes maintain velocity forever!
 
 # Colors
@@ -221,6 +223,10 @@ class Character:
         self.pull_target_shape = None
         # Store relative position on shape for moving shapes
         self.shape_relative_angle = 0
+        
+        # Health system
+        self.max_health = 100
+        self.current_health = 100
     
     def start_being_pulled(self, target_pos, target_shape_id):
         self.being_pulled = True
@@ -328,18 +334,28 @@ class Character:
         pygame.draw.circle(screen, WHITE, (int(screen_x), int(screen_y)), int(screen_radius))
         pygame.draw.circle(screen, BLACK, (int(screen_x), int(screen_y)), int(screen_radius), max(1, int(camera.scale_size(2))))
         
+        # Friendly face for the baby character
+        
         # Eyes
         eye_offset = camera.scale_size(4)
         eye_radius = camera.scale_size(2)
-        pygame.draw.circle(screen, BLACK, 
-                         (int(screen_x - eye_offset), int(screen_y - camera.scale_size(2))), int(eye_radius))
-        pygame.draw.circle(screen, BLACK, 
-                         (int(screen_x + eye_offset), int(screen_y - camera.scale_size(2))), int(eye_radius))
+        left_eye = (int(screen_x - eye_offset), int(screen_y - camera.scale_size(3)))
+        right_eye = (int(screen_x + eye_offset), int(screen_y - camera.scale_size(3)))
+        pygame.draw.circle(screen, BLACK, left_eye, int(eye_radius))
+        pygame.draw.circle(screen, BLACK, right_eye, int(eye_radius))
         
-        # Smile
-        smile_size = camera.scale_size(10)
-        smile_rect = pygame.Rect(screen_x - smile_size/2, screen_y, smile_size, camera.scale_size(6))
+        # Happy smile
+        smile_size = camera.scale_size(8)
+        smile_rect = pygame.Rect(screen_x - smile_size/2, screen_y + camera.scale_size(1), smile_size, camera.scale_size(5))
         pygame.draw.arc(screen, BLACK, smile_rect, 0, math.pi, max(1, int(camera.scale_size(2))))
+        
+        # Cheek blush for extra cuteness
+        cheek_radius = camera.scale_size(2)
+        cheek_color = (255, 200, 200)  # Light pink
+        left_cheek = (int(screen_x - camera.scale_size(7)), int(screen_y + camera.scale_size(1)))
+        right_cheek = (int(screen_x + camera.scale_size(7)), int(screen_y + camera.scale_size(1)))
+        pygame.draw.circle(screen, cheek_color, left_cheek, int(cheek_radius))
+        pygame.draw.circle(screen, cheek_color, right_cheek, int(cheek_radius))
 
 class Shape:
     def __init__(self, vertices=None, center=None, radius=None, color=WHITE, shape_id=0, is_mother=False):
@@ -351,6 +367,13 @@ class Shape:
         self.shape_id = shape_id
         self.is_mother = is_mother
         self.mother_pulse_time = 0  # For pulsating effect
+        
+        # Shape personality system
+        if is_mother:
+            self.mood = 'happy'  # Mother is always happy
+        else:
+            # 70% happy, 30% angry for game balance
+            self.mood = 'happy' if random.random() < 0.7 else 'angry'
         
         if self.is_mother:
             self.color = MOTHER_COLOR  # Override color for mother
@@ -589,6 +612,81 @@ class Shape:
             screen_vertices = [camera.world_to_screen(v) for v in self.vertices]
             if len(screen_vertices) > 2:
                 pygame.draw.polygon(screen, color, screen_vertices, width)
+        
+        # Draw face based on mood
+        self.draw_face(screen, camera)
+    
+    def draw_face(self, screen, camera):
+        """Draw a face on the shape based on its mood"""
+        center = self.get_center()
+        screen_center = camera.world_to_screen(center)
+        
+        # Calculate face size based on shape size
+        if self.is_circle:
+            face_scale = min(self.radius / 60, 1.5)  # Scale based on circle radius
+        else:
+            # For polygons, estimate size from vertices
+            min_x = min(v[0] for v in self.vertices)
+            max_x = max(v[0] for v in self.vertices)
+            min_y = min(v[1] for v in self.vertices)
+            max_y = max(v[1] for v in self.vertices)
+            avg_size = ((max_x - min_x) + (max_y - min_y)) / 4
+            face_scale = min(avg_size / 60, 1.5)
+        
+        face_scale = max(0.3, face_scale)  # Minimum readable size
+        screen_face_scale = camera.scale_size(face_scale)
+        
+        # Eye positions and sizes
+        eye_offset_x = camera.scale_size(12 * face_scale)
+        eye_offset_y = camera.scale_size(8 * face_scale)
+        eye_radius = max(1, int(camera.scale_size(3 * face_scale)))
+        
+        left_eye_pos = (int(screen_center[0] - eye_offset_x), int(screen_center[1] - eye_offset_y))
+        right_eye_pos = (int(screen_center[0] + eye_offset_x), int(screen_center[1] - eye_offset_y))
+        
+        if self.mood == 'happy':
+            # Draw happy face: round eyes and smile
+            pygame.draw.circle(screen, BLACK, left_eye_pos, eye_radius)
+            pygame.draw.circle(screen, BLACK, right_eye_pos, eye_radius)
+            
+            # Happy smile (upward arc - bottom half of circle)
+            smile_rect = pygame.Rect(
+                screen_center[0] - camera.scale_size(15 * face_scale),
+                screen_center[1] + camera.scale_size(5 * face_scale),
+                camera.scale_size(30 * face_scale),
+                camera.scale_size(15 * face_scale)
+            )
+            pygame.draw.arc(screen, BLACK, smile_rect, math.pi, 2 * math.pi, max(1, int(camera.scale_size(2 * face_scale))))
+            
+        elif self.mood == 'angry':
+            # Draw angry face: angled eyebrows and frown
+            
+            # Angry eyebrows (angled lines)
+            brow_length = camera.scale_size(8 * face_scale)
+            brow_width = max(1, int(camera.scale_size(2 * face_scale)))
+            
+            # Left eyebrow (angled down towards center)
+            left_brow_start = (int(left_eye_pos[0] - brow_length//2), int(left_eye_pos[1] - camera.scale_size(6 * face_scale)))
+            left_brow_end = (int(left_eye_pos[0] + brow_length//2), int(left_eye_pos[1] - camera.scale_size(3 * face_scale)))
+            pygame.draw.line(screen, RED, left_brow_start, left_brow_end, brow_width)
+            
+            # Right eyebrow (angled down towards center)
+            right_brow_start = (int(right_eye_pos[0] - brow_length//2), int(right_eye_pos[1] - camera.scale_size(3 * face_scale)))
+            right_brow_end = (int(right_eye_pos[0] + brow_length//2), int(right_eye_pos[1] - camera.scale_size(6 * face_scale)))
+            pygame.draw.line(screen, RED, right_brow_start, right_brow_end, brow_width)
+            
+            # Angry eyes (small red circles)
+            pygame.draw.circle(screen, RED, left_eye_pos, eye_radius)
+            pygame.draw.circle(screen, RED, right_eye_pos, eye_radius)
+            
+            # Angry frown (downward arc)
+            frown_rect = pygame.Rect(
+                screen_center[0] - camera.scale_size(12 * face_scale),
+                screen_center[1] + camera.scale_size(8 * face_scale),
+                camera.scale_size(24 * face_scale),
+                camera.scale_size(12 * face_scale)
+            )
+            pygame.draw.arc(screen, RED, frown_rect, math.pi, 2 * math.pi, max(1, int(camera.scale_size(2 * face_scale))))
     
     def get_total_perimeter(self):
         if self.is_circle:
@@ -913,8 +1011,13 @@ class Game:
         
         # Game state
         self.game_won = False
+        self.game_over = False  # New game over state
         self.win_time = 0
         self.shapes_frozen = False
+        
+        # Health system and visual feedback
+        self.screen_flash_timer = 0  # For damage flash effect
+        self.last_damage_time = 0  # To prevent multiple flashes per frame
         
         # Create camera
         self.camera = Camera(SCREEN_WIDTH, SCREEN_HEIGHT)
@@ -985,6 +1088,11 @@ class Game:
         print(f"Mother shape selected: Shape {self.mother_shape_id} (Type: {'Circle' if self.shapes[self.mother_shape_id].is_circle else 'Polygon'})")
         print(f"Distance from start to mother: {final_distance:.0f} pixels")
         
+        # Count and report shape mood distribution
+        happy_count = sum(1 for shape in self.shapes if shape.mood == 'happy')
+        angry_count = sum(1 for shape in self.shapes if shape.mood == 'angry')
+        print(f"Shape mood distribution: {happy_count} Happy ({happy_count/len(self.shapes)*100:.1f}%), {angry_count} Angry ({angry_count/len(self.shapes)*100:.1f}%)")
+        
         # Create character at the predetermined starting position
         self.character = Character(start_pos[0], start_pos[1])
         self.character.current_shape_id = char_start_shape
@@ -1019,8 +1127,8 @@ class Game:
             elif event.type == pygame.MOUSEMOTION:
                 self.mouse_pos = pygame.mouse.get_pos()
             elif event.type == pygame.MOUSEBUTTONDOWN:
-                if self.game_won:
-                    # Restart game on click after winning
+                if self.game_won or self.game_over:
+                    # Restart game on click after winning or game over
                     self.__init__()
                     return True
                 elif event.button == 1 and not self.harpoon.active and not self.character.being_pulled:
@@ -1031,8 +1139,8 @@ class Game:
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     return False
-                elif self.game_won and event.key == pygame.K_SPACE:
-                    # Restart game on spacebar after winning
+                elif (self.game_won or self.game_over) and event.key == pygame.K_SPACE:
+                    # Restart game on spacebar after winning or game over
                     self.__init__()
                     return True
         return True
@@ -1090,13 +1198,42 @@ class Game:
                 print("GAME WON! Player found their mother!")
     
     def update(self):
-        if self.game_won:
-            return  # Stop updating when game is won
+        if self.game_won or self.game_over:
+            return  # Stop updating when game is won or over
         
         keys = pygame.key.get_pressed()
         
         # Update game time
         self.game_time += self.dt
+        
+        # Update screen flash timer
+        if self.screen_flash_timer > 0:
+            self.screen_flash_timer -= self.dt
+        
+        # Health system - check current shape mood and apply effects
+        if not self.character.being_pulled and not self.harpoon.active:
+            current_shape = self.shapes[self.character.current_shape_id]
+            
+            if current_shape.mood == 'angry':
+                # Take damage on angry shapes
+                damage_this_frame = DAMAGE_RATE * self.dt
+                old_health = self.character.current_health
+                self.character.current_health = max(0, self.character.current_health - damage_this_frame)
+                
+                # Trigger screen flash if we actually took damage and haven't flashed recently
+                if old_health > self.character.current_health and self.screen_flash_timer <= 0:
+                    self.screen_flash_timer = 0.15  # Flash for 0.15 seconds
+                
+            elif current_shape.mood == 'happy':
+                # Heal on happy shapes
+                heal_this_frame = HEAL_RATE * self.dt
+                self.character.current_health = min(self.character.max_health, self.character.current_health + heal_this_frame)
+        
+        # Check for game over condition
+        if self.character.current_health <= 0:
+            self.game_over = True
+            self.shapes_frozen = True
+            return
         
         # Update all shapes with physics
         if not self.shapes_frozen:
@@ -1173,7 +1310,7 @@ class Game:
             shape.draw(self.screen, self.camera, is_active)
         
         # Draw harpoon range indicator
-        if not self.harpoon.active and not self.character.being_pulled and not self.game_won:
+        if not self.harpoon.active and not self.character.being_pulled and not self.game_won and not self.game_over:
             char_screen_pos = self.camera.world_to_screen((self.character.x, self.character.y))
             range_radius = self.camera.scale_size(HARPOON_MAX_DISTANCE)
             pygame.draw.circle(self.screen, (50, 50, 50), 
@@ -1187,16 +1324,47 @@ class Game:
         self.character.draw(self.screen, self.camera)
         
         # Draw directional arrow
-        if not self.game_won:
+        if not self.game_won and not self.game_over:
             mother_shape = self.shapes[self.mother_shape_id]
             self.arrow.draw(self.screen, self.character, mother_shape, self.camera)
         
         # Draw crosshair
-        if not self.harpoon.active and not self.character.being_pulled and not self.game_won:
+        if not self.harpoon.active and not self.character.being_pulled and not self.game_won and not self.game_over:
             draw_crosshair(self.screen, self.mouse_pos, self.camera)
         
-        # Draw UI
-        if self.game_won:
+        # Draw screen flash effect for damage
+        if self.screen_flash_timer > 0:
+            flash_alpha = int(100 * (self.screen_flash_timer / 0.15))  # Fade out effect
+            flash_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+            flash_surface.fill((255, 0, 0, flash_alpha))  # Red flash
+            self.screen.blit(flash_surface, (0, 0))
+        
+        # Draw health bar (always visible during gameplay)
+        if not self.game_won and not self.game_over:
+            self.draw_health_bar()
+        
+        # Draw UI overlays
+        if self.game_over:
+            # Game Over screen
+            overlay_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+            overlay_surface.fill((0, 0, 0, 150))  # Semi-transparent overlay
+            self.screen.blit(overlay_surface, (0, 0))
+            
+            # Game Over message
+            game_over_text = self.win_font.render("GAME OVER", True, RED)
+            game_over_rect = game_over_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 50))
+            self.screen.blit(game_over_text, game_over_rect)
+            
+            subtitle = self.title_font.render("Your health reached zero!", True, WHITE)
+            subtitle_rect = subtitle.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 20))
+            self.screen.blit(subtitle, subtitle_rect)
+            
+            # Restart instruction
+            restart_text = self.font.render("Click anywhere or press SPACE to try again", True, YELLOW)
+            restart_rect = restart_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 80))
+            self.screen.blit(restart_text, restart_rect)
+            
+        elif self.game_won:
             # Win screen
             win_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
             win_surface.fill((0, 0, 0, 150))  # Semi-transparent overlay
@@ -1216,35 +1384,37 @@ class Game:
             restart_rect = restart_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 80))
             self.screen.blit(restart_text, restart_rect)
         else:
-            # Normal UI
+            # Normal gameplay UI
             title = self.title_font.render("Find Your Mother!", True, MOTHER_COLOR)
             title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 30))
             self.screen.blit(title, title_rect)
             
-            # Instructions
+            # Current shape mood indicator
+            current_shape = self.shapes[self.character.current_shape_id]
+            mood_color = LIGHT_GREEN if current_shape.mood == 'happy' else RED
+            mood_text = f"Current Shape: {'😊 Happy' if current_shape.mood == 'happy' else '😠 Angry'} - {'Healing' if current_shape.mood == 'happy' else 'Taking Damage!'}"
+            
+            mood_surface = self.font.render(mood_text, True, mood_color)
+            mood_rect = mood_surface.get_rect(center=(SCREEN_WIDTH // 2, 70))
+            self.screen.blit(mood_surface, mood_rect)
+            
+            # Instructions (shortened for space with health bar)
             instructions = [
-                "Your small character has been separated from its mother!",
-                "Navigate through the chaotic field of moving shapes to reunite!",
-                f"🎯 Target: Golden pulsating shape ({self.mother_shape_id + 1}/{len(self.shapes)})",
-                "🏹 Use your harpoon to travel between shapes",
-                "📍 Follow the golden arrow when mother is off-screen",
-                "",
-                "Controls:",
-                "• A/D or Arrow Keys: Move along current shape",
-                "• Left Click: Launch harpoon at cursor",
-                f"• Harpoon Range: {HARPOON_MAX_DISTANCE} pixels (gray circle)"
+                "🎯 Navigate to the pulsating golden mother shape to win!",
+                "😊 Happy shapes (smiling) heal you over time",
+                "😠 Angry shapes (frowning) drain your health - avoid staying too long!",
+                "🏹 Use harpoon (Left Click) to escape dangerous shapes",
+                "📍 Follow the golden arrow when mother is off-screen"
             ]
             
-            y_start = 70
+            y_start = 100
             for i, instruction in enumerate(instructions):
-                if "Target:" in instruction or "mother" in instruction.lower():
+                if "mother" in instruction.lower():
                     color = MOTHER_COLOR
-                elif instruction.startswith("🎯") or instruction.startswith("🏹") or instruction.startswith("📍"):
-                    color = YELLOW
-                elif instruction == "":
-                    continue
-                elif instruction == "Controls:":
-                    color = CYAN
+                elif "😊" in instruction or "heal" in instruction.lower():
+                    color = LIGHT_GREEN
+                elif "😠" in instruction or "drain" in instruction.lower() or "dangerous" in instruction.lower():
+                    color = RED
                 else:
                     color = WHITE
                 
@@ -1252,6 +1422,32 @@ class Game:
                 self.screen.blit(text, (10, y_start + i * 25))
         
         pygame.display.flip()
+    
+    def draw_health_bar(self):
+        """Draw the player's health bar in the top-left corner"""
+        bar_width = 200
+        bar_height = 20
+        bar_x = 20
+        bar_y = 20
+        
+        # Background (red for lost health)
+        bg_rect = pygame.Rect(bar_x, bar_y, bar_width, bar_height)
+        pygame.draw.rect(self.screen, RED, bg_rect)
+        
+        # Foreground (green for current health)
+        health_ratio = self.character.current_health / self.character.max_health
+        health_width = int(bar_width * health_ratio)
+        if health_width > 0:
+            health_rect = pygame.Rect(bar_x, bar_y, health_width, bar_height)
+            pygame.draw.rect(self.screen, LIGHT_GREEN, health_rect)
+        
+        # Border
+        pygame.draw.rect(self.screen, WHITE, bg_rect, 2)
+        
+        # Health text
+        health_text = f"Health: {int(self.character.current_health)}/{self.character.max_health}"
+        health_surface = self.font.render(health_text, True, WHITE)
+        self.screen.blit(health_surface, (bar_x, bar_y + bar_height + 5))
     
     def run(self):
         running = True
