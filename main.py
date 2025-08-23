@@ -1012,8 +1012,10 @@ class DirectionalArrow:
     def __init__(self, screen_width, screen_height):
         self.screen_width = screen_width
         self.screen_height = screen_height
-        self.arrow_size = 30
-        self.margin = 50
+        self.arrow_size = 35  # Slightly smaller for less intrusion
+        self.orbit_radius = 80  # Closer to character
+        self.orbit_angle = 0  # For rotating around character
+        self.orbit_speed = 1  # Speed of rotation around character
     
     def is_mother_visible(self, mother_shape, camera):
         """Check if the mother shape is currently visible on screen"""
@@ -1068,12 +1070,26 @@ class DirectionalArrow:
     
     def draw(self, screen, character, mother_shape, camera):
         """Draw the directional arrow pointing to mother"""
-        if self.is_mother_visible(mother_shape, camera):
-            return  # Don't draw arrow if mother is visible
+        char_screen_pos = camera.world_to_screen((character.x, character.y))
+        mother_center = mother_shape.get_center()
         
-        arrow_pos, angle = self.get_arrow_position_and_rotation(character, mother_shape, camera)
-        if not arrow_pos:
-            return
+        # Calculate angle pointing towards mother
+        dx = mother_center[0] - character.x
+        dy = mother_center[1] - character.y
+        target_angle = math.degrees(math.atan2(dy, dx))
+        
+        # Update orbit position
+        self.orbit_angle += self.orbit_speed
+        if self.orbit_angle >= 360:
+            self.orbit_angle = 0
+        
+        # Calculate arrow position in orbit
+        orbit_rad = math.radians(self.orbit_angle)
+        arrow_pos = (
+            char_screen_pos[0] + math.cos(orbit_rad) * self.orbit_radius,
+            char_screen_pos[1] + math.sin(orbit_rad) * self.orbit_radius
+        )
+        angle = target_angle  # Use the angle that points to mother
         
         # Create arrow points (pointing right initially)
         arrow_points = [
@@ -1093,16 +1109,16 @@ class DirectionalArrow:
             ry = px * sin_a + py * cos_a
             rotated_points.append((arrow_pos[0] + rx, arrow_pos[1] + ry))
         
-        # Draw arrow with glow effect
-        glow_color = (255, 215, 0, 100)  # Gold with transparency
-        main_color = MOTHER_COLOR
+        # Draw arrow with enhanced glow effect
+        glow_color = (255, 215, 0, 150)  # Increased alpha for better visibility
+        main_color = (255, 223, 0)  # Slightly more yellow/gold than pure white
         
         # Draw glow (larger)
         glow_points = []
         for px, py in arrow_points:
             # Scale up for glow
-            px *= 1.3
-            py *= 1.3
+            px *= 1.5  # Increased glow size
+            py *= 1.5
             rx = px * cos_a - py * sin_a
             ry = px * sin_a + py * cos_a
             glow_points.append((arrow_pos[0] + rx, arrow_pos[1] + ry))
@@ -1113,9 +1129,9 @@ class DirectionalArrow:
                              p[1] - arrow_pos[1] + self.arrow_size * 1.5) for p in glow_points])
         screen.blit(glow_surf, (arrow_pos[0] - self.arrow_size * 1.5, arrow_pos[1] - self.arrow_size * 1.5))
         
-        # Draw main arrow
+        # Draw main arrow with outline
         pygame.draw.polygon(screen, main_color, rotated_points)
-        pygame.draw.polygon(screen, WHITE, rotated_points, 2)
+        pygame.draw.polygon(screen, (255, 235, 122), rotated_points, 3)  # Thicker, lighter outline
 
 class Game:
     def __init__(self):
