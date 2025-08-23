@@ -216,7 +216,7 @@ class Character:
         self.y = y
         self.radius = 12
         self.angle = 0  # Position along perimeter (0-1)
-        self.speed = 0.003
+        self.speed = 0.012  # Increased from 0.003 (4x faster)
         self.current_shape_id = 0
         self.being_pulled = False
         self.pull_target = None
