@@ -28,8 +28,12 @@ HARPOON_SPEED = 8
 PULL_SPEED = 6
 CAMERA_SMOOTH = 0.1
 
+# Expanded world bounds - 2x screen size for exploration
+WORLD_WIDTH = SCREEN_WIDTH * 2
+WORLD_HEIGHT = SCREEN_HEIGHT * 2
+WORLD_BOUNDS = (0, 0, WORLD_WIDTH, WORLD_HEIGHT)
+
 # Physics constants
-WORLD_BOUNDS = (0, 0, SCREEN_WIDTH, SCREEN_HEIGHT)  # Use screen boundaries as walls
 BOUNCE_DAMPING = 1  # Energy loss on wall bounces
 # No friction - shapes maintain velocity forever!
 
@@ -46,6 +50,9 @@ ORANGE = (255, 165, 0)
 DARK_BLUE = (30, 60, 114)
 LIGHT_GREEN = (46, 204, 113)
 PINK = (231, 76, 60)
+
+# Mother shape special color - bright gold
+MOTHER_COLOR = (255, 215, 0)
 
 class Camera:
     def __init__(self, screen_width, screen_height):
@@ -242,10 +249,14 @@ class Character:
             self.being_pulled = False
             self.pull_target = None
             self.pull_target_shape = None
+            
+            # Return True to indicate pull completed
+            return True
         else:
             # Move towards target
             self.x += (dx/distance) * PULL_SPEED
             self.y += (dy/distance) * PULL_SPEED
+            return False
     
     def update_position_on_moving_shape(self, shapes):
         """Update character position when attached to a moving shape"""
@@ -331,17 +342,22 @@ class Character:
         pygame.draw.arc(screen, BLACK, smile_rect, 0, math.pi, max(1, int(camera.scale_size(2))))
 
 class Shape:
-    def __init__(self, vertices=None, center=None, radius=None, color=WHITE, shape_id=0):
+    def __init__(self, vertices=None, center=None, radius=None, color=WHITE, shape_id=0, is_mother=False):
         self.vertices = vertices
         self.center = center
         self.radius = radius
         self.color = color
         self.is_circle = center is not None and radius is not None
         self.shape_id = shape_id
+        self.is_mother = is_mother
+        self.mother_pulse_time = 0  # For pulsating effect
         
-        # Physics properties - consistent speed of 32 in random direction
+        if self.is_mother:
+            self.color = MOTHER_COLOR  # Override color for mother
+        
+        # Physics properties - increased speed to 64 for more challenge
         angle = random.uniform(0, 2 * math.pi)  # Random direction
-        speed = 32  # Fixed high speed
+        speed = 64  # Doubled from 32
         # Create normal vector and multiply by speed
         normal_x = math.cos(angle)
         normal_y = math.sin(angle)
@@ -414,11 +430,15 @@ class Shape:
     
     def update_physics(self, dt, current_time):
         """Update shape position based on velocity - using Pymunk for collisions"""
+        # Update mother pulse animation
+        if self.is_mother:
+            self.mother_pulse_time += dt * 4  # Pulse frequency
+        
         # Safety check: if velocity is somehow zero, give it a new random direction
         current_speed = math.sqrt(self.velocity[0]**2 + self.velocity[1]**2)
         if current_speed < 1:  # Very slow or stationary
             angle = random.uniform(0, 2 * math.pi)
-            speed = 32
+            speed = 64  # Updated speed
             self.velocity = [math.cos(angle) * speed, math.sin(angle) * speed]
         
         # Update position manually
@@ -441,220 +461,57 @@ class Shape:
         # Update collision bounds for screen wrapping
         self.collision_bounds = self.calculate_bounds()
         
-        # Bounce off screen boundaries (walls)
-        self.check_screen_bounds()
+        # Bounce off expanded world boundaries
+        self.check_world_bounds()
     
-    def check_screen_bounds(self):
-        """Check and handle collisions with screen boundaries"""
+    def check_world_bounds(self):
+        """Check and handle collisions with expanded world boundaries - proper bouncing"""
         bounds = self.collision_bounds
         
-        # Check left/right screen bounds
+        # Check left/right world bounds
         if bounds[0] < 0:  # Hit left edge
             self.velocity[0] = abs(self.velocity[0]) * BOUNCE_DAMPING
+            # Minimal position correction to prevent sticking
             if self.is_circle:
-                self.center = (self.radius, self.center[1])
+                overlap = 0 - bounds[0]
+                self.center = (self.center[0] + overlap, self.center[1])
             else:
-                offset = 0 - bounds[0]
-                self.vertices = [(v[0] + offset, v[1]) for v in self.vertices]
+                overlap = 0 - bounds[0]
+                self.vertices = [(v[0] + overlap, v[1]) for v in self.vertices]
         
-        elif bounds[2] > SCREEN_WIDTH:  # Hit right edge
+        elif bounds[2] > WORLD_WIDTH:  # Hit right edge
             self.velocity[0] = -abs(self.velocity[0]) * BOUNCE_DAMPING
+            # Minimal position correction to prevent sticking
             if self.is_circle:
-                self.center = (SCREEN_WIDTH - self.radius, self.center[1])
+                overlap = bounds[2] - WORLD_WIDTH
+                self.center = (self.center[0] - overlap, self.center[1])
             else:
-                offset = SCREEN_WIDTH - bounds[2]
-                self.vertices = [(v[0] + offset, v[1]) for v in self.vertices]
+                overlap = bounds[2] - WORLD_WIDTH
+                self.vertices = [(v[0] - overlap, v[1]) for v in self.vertices]
         
-        # Check top/bottom screen bounds
+        # Check top/bottom world bounds
         if bounds[1] < 0:  # Hit top edge
             self.velocity[1] = abs(self.velocity[1]) * BOUNCE_DAMPING
+            # Minimal position correction to prevent sticking
             if self.is_circle:
-                self.center = (self.center[0], self.radius)
+                overlap = 0 - bounds[1]
+                self.center = (self.center[0], self.center[1] + overlap)
             else:
-                offset = 0 - bounds[1]
-                self.vertices = [(v[0], v[1] + offset) for v in self.vertices]
+                overlap = 0 - bounds[1]
+                self.vertices = [(v[0], v[1] + overlap) for v in self.vertices]
         
-        elif bounds[3] > SCREEN_HEIGHT:  # Hit bottom edge
+        elif bounds[3] > WORLD_HEIGHT:  # Hit bottom edge
             self.velocity[1] = -abs(self.velocity[1]) * BOUNCE_DAMPING
+            # Minimal position correction to prevent sticking
             if self.is_circle:
-                self.center = (self.center[0], SCREEN_HEIGHT - self.radius)
+                overlap = bounds[3] - WORLD_HEIGHT
+                self.center = (self.center[0], self.center[1] - overlap)
             else:
-                offset = SCREEN_HEIGHT - bounds[3]
-                self.vertices = [(v[0], v[1] + offset) for v in self.vertices]
+                overlap = bounds[3] - WORLD_HEIGHT
+                self.vertices = [(v[0], v[1] - overlap) for v in self.vertices]
         
         # Update bounds after boundary correction
         self.collision_bounds = self.calculate_bounds()
-    
-    def check_collision_with(self, other, current_time):
-        """This method is now handled by Pymunk"""
-        return None
-        
-        # Broad phase - check bounding boxes
-        if not self.bounds_overlap(other):
-            return None
-        
-        # Narrow phase - detailed collision detection
-        if self.is_circle and other.is_circle:
-            return self.circle_circle_collision(other)
-        elif self.is_circle and not other.is_circle:
-            return self.circle_polygon_collision(other)
-        elif not self.is_circle and other.is_circle:
-            return other.circle_polygon_collision(self)
-        else:
-            return self.polygon_polygon_collision(other)
-    
-    def bounds_overlap(self, other):
-        """Quick check if bounding boxes overlap"""
-        a = self.collision_bounds
-        b = other.collision_bounds
-        return not (a[2] < b[0] or a[0] > b[2] or a[3] < b[1] or a[1] > b[3])
-    
-    def circle_circle_collision(self, other):
-        """Detect collision between two circles"""
-        dx = other.center[0] - self.center[0]
-        dy = other.center[1] - self.center[1]
-        distance = math.sqrt(dx*dx + dy*dy)
-        min_distance = self.radius + other.radius
-        
-        if distance < min_distance:
-            # Collision detected
-            if distance == 0:  # Prevent division by zero
-                normal = (1, 0)
-            else:
-                normal = (dx / distance, dy / distance)
-            
-            overlap = min_distance - distance
-            return {
-                'normal': normal,
-                'overlap': overlap,
-                'contact_point': (
-                    self.center[0] + normal[0] * self.radius,
-                    self.center[1] + normal[1] * self.radius
-                )
-            }
-        return None
-    
-    def circle_polygon_collision(self, polygon):
-        """Detect collision between circle and polygon"""
-        closest_distance = float('inf')
-        collision_normal = None
-        contact_point = None
-        
-        # Check distance to each edge
-        for i in range(len(polygon.vertices)):
-            start = polygon.vertices[i]
-            end = polygon.vertices[(i + 1) % len(polygon.vertices)]
-            
-            # Find closest point on edge to circle center
-            edge_vec = (end[0] - start[0], end[1] - start[1])
-            edge_length = math.sqrt(edge_vec[0]**2 + edge_vec[1]**2)
-            
-            if edge_length == 0:
-                continue
-            
-            edge_unit = (edge_vec[0] / edge_length, edge_vec[1] / edge_length)
-            to_center = (self.center[0] - start[0], self.center[1] - start[1])
-            
-            # Project circle center onto edge
-            projection = max(0, min(edge_length, 
-                to_center[0] * edge_unit[0] + to_center[1] * edge_unit[1]))
-            
-            closest_point = (
-                start[0] + edge_unit[0] * projection,
-                start[1] + edge_unit[1] * projection
-            )
-            
-            # Distance from circle center to closest point
-            dist_vec = (self.center[0] - closest_point[0], self.center[1] - closest_point[1])
-            distance = math.sqrt(dist_vec[0]**2 + dist_vec[1]**2)
-            
-            if distance < closest_distance:
-                closest_distance = distance
-                if distance == 0:
-                    collision_normal = (-edge_unit[1], edge_unit[0])  # Perpendicular to edge
-                else:
-                    collision_normal = (dist_vec[0] / distance, dist_vec[1] / distance)
-                contact_point = closest_point
-        
-        if closest_distance < self.radius:
-            overlap = self.radius - closest_distance
-            return {
-                'normal': collision_normal,
-                'overlap': overlap,
-                'contact_point': contact_point
-            }
-        
-        return None
-    
-    def polygon_polygon_collision(self, other):
-        """Detect collision between two polygons using SAT"""
-        # Get all edge normals from both polygons
-        axes = []
-        
-        # Get normals from first polygon
-        for i in range(len(self.vertices)):
-            start = self.vertices[i]
-            end = self.vertices[(i + 1) % len(self.vertices)]
-            edge = (end[0] - start[0], end[1] - start[1])
-            length = math.sqrt(edge[0]**2 + edge[1]**2)
-            if length > 0:
-                normal = (-edge[1] / length, edge[0] / length)
-                axes.append(normal)
-        
-        # Get normals from second polygon
-        for i in range(len(other.vertices)):
-            start = other.vertices[i]
-            end = other.vertices[(i + 1) % len(other.vertices)]
-            edge = (end[0] - start[0], end[1] - start[1])
-            length = math.sqrt(edge[0]**2 + edge[1]**2)
-            if length > 0:
-                normal = (-edge[1] / length, edge[0] / length)
-                axes.append(normal)
-        
-        min_overlap = float('inf')
-        collision_axis = None
-        
-        # Test each axis
-        for axis in axes:
-            # Project both polygons onto axis
-            proj1 = self.project_onto_axis(axis)
-            proj2 = other.project_onto_axis(axis)
-            
-            # Check for separation
-            if proj1[1] < proj2[0] or proj2[1] < proj1[0]:
-                return None  # Separating axis found
-            
-            # Calculate overlap
-            overlap = min(proj1[1], proj2[1]) - max(proj1[0], proj2[0])
-            if overlap < min_overlap:
-                min_overlap = overlap
-                collision_axis = axis
-        
-        # All axes overlap - collision detected
-        if collision_axis:
-            # Calculate contact point (approximation)
-            center1 = self.get_center()
-            center2 = other.get_center()
-            contact_point = (
-                (center1[0] + center2[0]) / 2,
-                (center1[1] + center2[1]) / 2
-            )
-            
-            return {
-                'normal': collision_axis,
-                'overlap': min_overlap,
-                'contact_point': contact_point
-            }
-        
-        return None
-    
-    def project_onto_axis(self, axis):
-        """Project polygon vertices onto an axis"""
-        dots = []
-        for vertex in self.vertices:
-            dot = vertex[0] * axis[0] + vertex[1] * axis[1]
-            dots.append(dot)
-        return [min(dots), max(dots)]
     
     def get_center(self):
         """Get center point of polygon"""
@@ -665,84 +522,38 @@ class Shape:
         center_y = sum(v[1] for v in self.vertices) / len(self.vertices)
         return (center_x, center_y)
     
-    def resolve_collision(self, other, collision_info, current_time):
-        """Resolve collision with physics response and anti-bounce protection"""
-        normal = collision_info['normal']
-        overlap = collision_info['overlap']
-        
-        # Set collision cooldowns to prevent immediate re-collision
-        self.collision_cooldowns[other.shape_id] = current_time
-        other.collision_cooldowns[self.shape_id] = current_time
-        
-        # More aggressive separation to prevent overlap-induced bouncing
-        total_mass = self.mass + other.mass
-        self_separation = (other.mass / total_mass) * overlap * 1.2  # 20% extra separation
-        other_separation = (self.mass / total_mass) * overlap * 1.2
-        
-        # Move shapes apart
-        if self.is_circle:
-            self.center = (
-                self.center[0] - normal[0] * self_separation,
-                self.center[1] - normal[1] * self_separation
-            )
-        else:
-            dx = -normal[0] * self_separation
-            dy = -normal[1] * self_separation
-            self.vertices = [(v[0] + dx, v[1] + dy) for v in self.vertices]
-        
-        if other.is_circle:
-            other.center = (
-                other.center[0] + normal[0] * other_separation,
-                other.center[1] + normal[1] * other_separation
-            )
-        else:
-            dx = normal[0] * other_separation
-            dy = normal[1] * other_separation
-            other.vertices = [(v[0] + dx, v[1] + dy) for v in other.vertices]
-        
-        # Calculate relative velocity
-        rel_velocity = [
-            other.velocity[0] - self.velocity[0],
-            other.velocity[1] - self.velocity[1]
-        ]
-        
-        # Velocity component along collision normal
-        velocity_along_normal = (
-            rel_velocity[0] * normal[0] + 
-            rel_velocity[1] * normal[1]
-        )
-        
-        # Don't resolve if velocities are separating
-        if velocity_along_normal > 0:
-            return
-        
-        # Collision impulse with slight damping to reduce energy buildup
-        restitution = 0.85  # Slightly reduced for stability
-        impulse_magnitude = -(1 + restitution) * velocity_along_normal
-        impulse_magnitude /= (1/self.mass + 1/other.mass)
-        
-        # Apply impulse
-        impulse = [normal[0] * impulse_magnitude, normal[1] * impulse_magnitude]
-        
-        self.velocity[0] -= impulse[0] / self.mass
-        self.velocity[1] -= impulse[1] / self.mass
-        other.velocity[0] += impulse[0] / other.mass
-        other.velocity[1] += impulse[1] / other.mass
-        
-        # Limit extreme velocities to prevent chaos (increased limit for speed 32)
-        max_velocity = 40
-        self.velocity[0] = max(-max_velocity, min(max_velocity, self.velocity[0]))
-        self.velocity[1] = max(-max_velocity, min(max_velocity, self.velocity[1]))
-        other.velocity[0] = max(-max_velocity, min(max_velocity, other.velocity[0]))
-        other.velocity[1] = max(-max_velocity, min(max_velocity, other.velocity[1]))
-        
-        # Update bounds after collision resolution
-        self.collision_bounds = self.calculate_bounds()
-        other.collision_bounds = other.calculate_bounds()
-    
     def draw(self, screen, camera, is_active=False):
         color = self.color
         width = max(1, int(camera.scale_size(5 if is_active else 3)))
+        
+        # Special mother shape effects
+        if self.is_mother:
+            pulse_factor = 0.8 + 0.4 * math.sin(self.mother_pulse_time)
+            
+            # Pulsating outer glow
+            glow_size = max(1, int(camera.scale_size(8 * pulse_factor)))
+            if self.is_circle:
+                screen_center = camera.world_to_screen(self.center)
+                glow_radius = camera.scale_size(self.radius + 10 * pulse_factor)
+                
+                # Create glow surface with alpha
+                glow_surf = pygame.Surface((glow_radius * 2, glow_radius * 2), pygame.SRCALPHA)
+                alpha = int(100 * pulse_factor)
+                pygame.draw.circle(glow_surf, (*MOTHER_COLOR, alpha), 
+                                 (glow_radius, glow_radius), glow_radius)
+                screen.blit(glow_surf, (screen_center[0] - glow_radius, screen_center[1] - glow_radius))
+            else:
+                # Polygon glow effect
+                center = self.get_center()
+                for v in self.vertices:
+                    screen_pos = camera.world_to_screen(v)
+                    glow_surf = pygame.Surface((20, 20), pygame.SRCALPHA)
+                    alpha = int(150 * pulse_factor)
+                    pygame.draw.circle(glow_surf, (*MOTHER_COLOR, alpha), (10, 10), 10)
+                    screen.blit(glow_surf, (screen_pos[0] - 10, screen_pos[1] - 10))
+            
+            # Animate the main shape width
+            width = max(1, int(camera.scale_size(3 + 4 * pulse_factor)))
         
         # Add glow effect for active shape
         if is_active:
@@ -778,13 +589,6 @@ class Shape:
             screen_vertices = [camera.world_to_screen(v) for v in self.vertices]
             if len(screen_vertices) > 2:
                 pygame.draw.polygon(screen, color, screen_vertices, width)
-        
-        # Draw velocity vector for debugging (set to False now that we have many shapes)
-        if False:  # Disabled for cleaner visual with 22 shapes
-            center = self.get_center()
-            screen_center = camera.world_to_screen(center)
-            vel_end = camera.world_to_screen((center[0] + self.velocity[0] * 5, center[1] + self.velocity[1] * 5))
-            pygame.draw.line(screen, (255, 255, 0), screen_center, vel_end, max(1, int(camera.scale_size(2))))
     
     def get_total_perimeter(self):
         if self.is_circle:
@@ -935,16 +739,255 @@ def draw_crosshair(screen, pos, camera):
     pygame.draw.line(screen, WHITE, (x, y-size), (x, y+size), line_width)
     pygame.draw.circle(screen, WHITE, (int(x), int(y)), int(size//2), max(1, int(camera.scale_size(1))))
 
+def is_position_valid(x, y, radius, existing_shapes):
+    """Check if a position is valid (doesn't overlap with existing shapes)"""
+    for shape in existing_shapes:
+        if shape.is_circle:
+            dx = x - shape.center[0]
+            dy = y - shape.center[1]
+            distance = math.sqrt(dx*dx + dy*dy)
+            if distance < radius + shape.radius + 50:  # 50 pixel buffer
+                return False
+        else:
+            shape_center = shape.get_center()
+            dx = x - shape_center[0]
+            dy = y - shape_center[1]
+            distance = math.sqrt(dx*dx + dy*dy)
+            # Estimate shape radius from vertices
+            max_dist = 0
+            for vertex in shape.vertices:
+                vx, vy = vertex
+                v_dist = math.sqrt((vx - shape_center[0])**2 + (vy - shape_center[1])**2)
+                max_dist = max(max_dist, v_dist)
+            if distance < radius + max_dist + 50:  # 50 pixel buffer
+                return False
+    return True
+
+def generate_shape_at_valid_position(existing_shapes, shape_id):
+    """Generate a random shape at a valid (non-overlapping) position"""
+    colors = [RED, CYAN, BLUE, GREEN, YELLOW, PURPLE, ORANGE, PINK, LIGHT_GREEN]
+    
+    max_attempts = 100
+    for attempt in range(max_attempts):
+        # Random position in expanded world
+        margin = 100
+        x = random.randint(margin, WORLD_WIDTH - margin)
+        y = random.randint(margin, WORLD_HEIGHT - margin)
+        
+        # Random shape type and size
+        shape_type = random.choice(['triangle', 'square', 'pentagon', 'hexagon', 'heptagon', 'octagon', 'circle'])
+        radius = random.randint(40, 80)
+        
+        if is_position_valid(x, y, radius, existing_shapes):
+            color = random.choice(colors)
+            
+            if shape_type == 'circle':
+                return Shape(center=(x, y), radius=radius, color=color, shape_id=shape_id)
+            else:
+                sides_map = {
+                    'triangle': 3, 'square': 4, 'pentagon': 5, 'hexagon': 6, 
+                    'heptagon': 7, 'octagon': 8
+                }
+                sides = sides_map[shape_type]
+                vertices = generate_regular_polygon(sides, x, y, radius)
+                return Shape(vertices=vertices, color=color, shape_id=shape_id)
+    
+    # If we can't find a valid position, place it randomly anyway
+    x = random.randint(100, WORLD_WIDTH - 100)
+    y = random.randint(100, WORLD_HEIGHT - 100)
+    return Shape(center=(x, y), radius=50, color=random.choice(colors), shape_id=shape_id)
+
+class DirectionalArrow:
+    def __init__(self, screen_width, screen_height):
+        self.screen_width = screen_width
+        self.screen_height = screen_height
+        self.arrow_size = 30
+        self.margin = 50
+    
+    def is_mother_visible(self, mother_shape, camera):
+        """Check if the mother shape is currently visible on screen"""
+        mother_center = mother_shape.get_center()
+        screen_pos = camera.world_to_screen(mother_center)
+        
+        # Check if center is within screen bounds (with some margin)
+        margin = 100
+        return (-margin <= screen_pos[0] <= self.screen_width + margin and 
+                -margin <= screen_pos[1] <= self.screen_height + margin)
+    
+    def get_arrow_position_and_rotation(self, character, mother_shape, camera):
+        """Calculate arrow position and rotation to point towards mother"""
+        char_pos = (character.x, character.y)
+        mother_center = mother_shape.get_center()
+        
+        # Vector from character to mother
+        dx = mother_center[0] - char_pos[0]
+        dy = mother_center[1] - char_pos[1]
+        
+        # Normalize the direction
+        distance = math.sqrt(dx*dx + dy*dy)
+        if distance == 0:
+            return None, 0
+        
+        dir_x = dx / distance
+        dir_y = dy / distance
+        
+        # Calculate angle for rotation
+        angle = math.atan2(dir_y, dir_x)
+        
+        # Find where this direction intersects screen edges
+        screen_center_x = self.screen_width // 2
+        screen_center_y = self.screen_height // 2
+        
+        # Scale the direction to reach screen edge
+        edge_scale = max(
+            abs(screen_center_x / dir_x) if dir_x != 0 else float('inf'),
+            abs(screen_center_y / dir_y) if dir_y != 0 else float('inf')
+        )
+        
+        # Position at screen edge minus margin
+        edge_scale = max(0, edge_scale - self.margin)
+        arrow_x = screen_center_x + dir_x * edge_scale
+        arrow_y = screen_center_y + dir_y * edge_scale
+        
+        # Clamp to screen bounds
+        arrow_x = max(self.margin, min(self.screen_width - self.margin, arrow_x))
+        arrow_y = max(self.margin, min(self.screen_height - self.margin, arrow_y))
+        
+        return (arrow_x, arrow_y), math.degrees(angle)
+    
+    def draw(self, screen, character, mother_shape, camera):
+        """Draw the directional arrow pointing to mother"""
+        if self.is_mother_visible(mother_shape, camera):
+            return  # Don't draw arrow if mother is visible
+        
+        arrow_pos, angle = self.get_arrow_position_and_rotation(character, mother_shape, camera)
+        if not arrow_pos:
+            return
+        
+        # Create arrow points (pointing right initially)
+        arrow_points = [
+            (self.arrow_size, 0),      # Tip
+            (0, -self.arrow_size//2),  # Top back
+            (self.arrow_size//3, 0),   # Back middle
+            (0, self.arrow_size//2),   # Bottom back
+        ]
+        
+        # Rotate arrow points
+        cos_a = math.cos(math.radians(angle))
+        sin_a = math.sin(math.radians(angle))
+        
+        rotated_points = []
+        for px, py in arrow_points:
+            rx = px * cos_a - py * sin_a
+            ry = px * sin_a + py * cos_a
+            rotated_points.append((arrow_pos[0] + rx, arrow_pos[1] + ry))
+        
+        # Draw arrow with glow effect
+        glow_color = (255, 215, 0, 100)  # Gold with transparency
+        main_color = MOTHER_COLOR
+        
+        # Draw glow (larger)
+        glow_points = []
+        for px, py in arrow_points:
+            # Scale up for glow
+            px *= 1.3
+            py *= 1.3
+            rx = px * cos_a - py * sin_a
+            ry = px * sin_a + py * cos_a
+            glow_points.append((arrow_pos[0] + rx, arrow_pos[1] + ry))
+        
+        glow_surf = pygame.Surface((self.arrow_size * 3, self.arrow_size * 3), pygame.SRCALPHA)
+        pygame.draw.polygon(glow_surf, glow_color, 
+                           [(p[0] - arrow_pos[0] + self.arrow_size * 1.5, 
+                             p[1] - arrow_pos[1] + self.arrow_size * 1.5) for p in glow_points])
+        screen.blit(glow_surf, (arrow_pos[0] - self.arrow_size * 1.5, arrow_pos[1] - self.arrow_size * 1.5))
+        
+        # Draw main arrow
+        pygame.draw.polygon(screen, main_color, rotated_points)
+        pygame.draw.polygon(screen, WHITE, rotated_points, 2)
+
 class Game:
     def __init__(self):
         self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
         self.clock = pygame.time.Clock()
         
+        # Game state
+        self.game_won = False
+        self.win_time = 0
+        self.shapes_frozen = False
+        
         # Create camera
         self.camera = Camera(SCREEN_WIDTH, SCREEN_HEIGHT)
         
-        # Create character
-        self.character = Character(200, 200)
+        # Create directional arrow
+        self.arrow = DirectionalArrow(SCREEN_WIDTH, SCREEN_HEIGHT)
+        
+        # Generate 100+ shapes spread across expanded world
+        print("Generating 100+ shapes across expanded world...")
+        self.shapes = []
+        
+        # Generate shapes with non-overlapping positions
+        num_shapes = 104  # Doubled for more exploration challenge
+        for i in range(num_shapes):
+            shape = generate_shape_at_valid_position(self.shapes, i)
+            self.shapes.append(shape)
+            if i % 20 == 0:  # Print every 20 shapes for 104 total
+                print(f"Generated {i+1}/{num_shapes} shapes...")
+        
+        # First, select a random starting shape for the character
+        char_start_shape = random.randint(0, len(self.shapes) - 1)
+        start_shape = self.shapes[char_start_shape]
+        start_pos = start_shape.get_position_on_perimeter(0.0)
+        
+        # Now select mother shape ensuring it's far enough away
+        min_distance = 800  # Minimum distance in pixels between start and mother
+        valid_mother_shapes = []
+        
+        for i, shape in enumerate(self.shapes):
+            if i == char_start_shape:
+                continue  # Can't be the same shape
+            
+            # Calculate distance between starting position and this potential mother
+            mother_center = shape.get_center()
+            distance = math.sqrt((start_pos[0] - mother_center[0])**2 + 
+                               (start_pos[1] - mother_center[1])**2)
+            
+            if distance >= min_distance:
+                valid_mother_shapes.append(i)
+        
+        # If we don't have enough valid distant shapes, reduce the requirement
+        if len(valid_mother_shapes) == 0:
+            min_distance = 400  # Fallback to smaller distance
+            for i, shape in enumerate(self.shapes):
+                if i == char_start_shape:
+                    continue
+                mother_center = shape.get_center()
+                distance = math.sqrt((start_pos[0] - mother_center[0])**2 + 
+                                   (start_pos[1] - mother_center[1])**2)
+                if distance >= min_distance:
+                    valid_mother_shapes.append(i)
+        
+        # Select mother from valid distant shapes
+        if valid_mother_shapes:
+            self.mother_shape_id = random.choice(valid_mother_shapes)
+        else:
+            # Last resort: pick any shape that's not the starting shape
+            self.mother_shape_id = (char_start_shape + len(self.shapes) // 2) % len(self.shapes)
+        
+        self.shapes[self.mother_shape_id].is_mother = True
+        self.shapes[self.mother_shape_id].color = MOTHER_COLOR
+        
+        # Calculate final distance for reporting
+        mother_center = self.shapes[self.mother_shape_id].get_center()
+        final_distance = math.sqrt((start_pos[0] - mother_center[0])**2 + 
+                                 (start_pos[1] - mother_center[1])**2)
+        
+        print(f"Mother shape selected: Shape {self.mother_shape_id} (Type: {'Circle' if self.shapes[self.mother_shape_id].is_circle else 'Polygon'})")
+        print(f"Distance from start to mother: {final_distance:.0f} pixels")
+        
+        # Create character at the predetermined starting position
+        self.character = Character(start_pos[0], start_pos[1])
+        self.character.current_shape_id = char_start_shape
         
         # Create harpoon
         self.harpoon = Harpoon()
@@ -953,77 +996,21 @@ class Game:
         handler = space.add_default_collision_handler()
         handler.pre_solve = self.on_collision
         handler.separate = self.on_separate
-        # Create multiple moving shapes spread across the screen - MORE SHAPES with size variety!
-        self.shapes = [
-            # Row 1 - Top
-            Shape(vertices=[(200, 100), (120, 220), (280, 220)], 
-                  color=RED, shape_id=0),
-            Shape(vertices=[(400, 120), (550, 120), (550, 270), (400, 270)], 
-                  color=CYAN, shape_id=1),
-            Shape(center=(750, 200), radius=80, color=YELLOW, shape_id=2),
-            Shape(vertices=generate_regular_polygon(5, 1000, 150, 70),
-                  color=GREEN, shape_id=3),
-            Shape(vertices=generate_regular_polygon(6, 1250, 180, 60),
-                  color=BLUE, shape_id=4),
-            Shape(vertices=generate_regular_polygon(8, 1500, 160, 45),
-                  color=PURPLE, shape_id=5),
-            
-            # Row 2 - Middle
-            Shape(center=(150, 400), radius=65, color=ORANGE, shape_id=6),
-            Shape(vertices=[(350, 350), (450, 350), (450, 450), (350, 450)], 
-                  color=PINK, shape_id=7),
-            Shape(vertices=generate_regular_polygon(3, 650, 400, 70),
-                  color=LIGHT_GREEN, shape_id=8),
-            Shape(vertices=generate_regular_polygon(7, 900, 380, 50),
-                  color=(255, 200, 100), shape_id=9),  # Orange-ish
-            Shape(center=(1150, 420), radius=75, color=(100, 255, 200), shape_id=10),  # Mint
-            Shape(vertices=generate_regular_polygon(4, 1400, 400, 80),  # Diamond orientation
-                  color=(255, 100, 255), shape_id=11),  # Magenta
-            
-            # Row 3 - Bottom  
-            Shape(vertices=generate_regular_polygon(5, 200, 650, 85),
-                  color=GREEN, shape_id=12),
-            Shape(vertices=generate_regular_polygon(6, 500, 700, 65),
-                  color=BLUE, shape_id=13),
-            Shape(vertices=generate_regular_polygon(8, 750, 680, 55),
-                  color=PURPLE, shape_id=14),
-            Shape(center=(1000, 650), radius=90, color=(200, 100, 255), shape_id=15),  # Purple-ish
-            Shape(vertices=generate_regular_polygon(3, 1250, 700, 75),
-                  color=(255, 150, 150), shape_id=16),  # Light red
-            Shape(vertices=[(1450, 620), (1550, 620), (1600, 720), (1400, 720)], 
-                  color=(150, 255, 150), shape_id=17),  # Light green
-            
-            # Row 4 - Extra bottom
-            Shape(center=(300, 900), radius=60, color=(100, 200, 255), shape_id=18),  # Light blue
-            Shape(vertices=generate_regular_polygon(7, 600, 880, 65),
-                  color=(255, 255, 100), shape_id=19),  # Bright yellow
-            Shape(vertices=generate_regular_polygon(9, 900, 900, 50),  # Nonagon!
-                  color=(200, 200, 255), shape_id=20),  # Light purple
-            Shape(vertices=[(1100, 850), (1200, 850), (1250, 920), (1200, 990), (1100, 990), (1050, 920)],
-                  color=(255, 200, 200), shape_id=21),  # Hexagon-ish light pink
-        ]
         
-        # Define shape names for UI display
-        self.shape_names = [
-            'Red Triangle', 'Cyan Square', 'Yellow Circle', 'Green Pentagon', 'Blue Hexagon', 'Purple Octagon',
-            'Orange Circle', 'Pink Square', 'Light Green Triangle', 'Orange Heptagon', 'Mint Circle', 'Magenta Diamond',
-            'Green Pentagon 2', 'Blue Hexagon 2', 'Purple Octagon 2', 'Purple Circle', 'Light Red Triangle', 'Light Green Trapezoid',
-            'Light Blue Circle', 'Bright Yellow Heptagon', 'Light Purple Nonagon', 'Pink Hexagon'
-        ]
-        
-        # Font for instructions
-        self.font = pygame.font.Font(None, 16)  # Slightly smaller for more instructions
-        self.title_font = pygame.font.Font(None, 36)
+        # Font for instructions and win screen
+        self.font = pygame.font.Font(None, 24)
+        self.title_font = pygame.font.Font(None, 48)
+        self.win_font = pygame.font.Font(None, 72)
         
         # Mouse position
         self.mouse_pos = (0, 0)
         
         # Physics time step
         self.dt = 1.0 / FPS
-        self.game_time = 0  # Track game time for collision cooldowns
+        self.game_time = 0
         
-        # Set window caption after shapes are created
-        pygame.display.set_caption(f"Harpoon Navigator - {len(self.shapes)} Moving Shapes!")
+        pygame.display.set_caption(f"Find Your Mother! - {len(self.shapes)} Shapes to Explore")
+        print(f"Game initialized with {len(self.shapes)} shapes in {WORLD_WIDTH}x{WORLD_HEIGHT} world")
     
     def handle_events(self):
         for event in pygame.event.get():
@@ -1032,18 +1019,29 @@ class Game:
             elif event.type == pygame.MOUSEMOTION:
                 self.mouse_pos = pygame.mouse.get_pos()
             elif event.type == pygame.MOUSEBUTTONDOWN:
-                if event.button == 1 and not self.harpoon.active and not self.character.being_pulled:  # Left click
-                    # Launch harpoon - convert screen coordinates to world coordinates
+                if self.game_won:
+                    # Restart game on click after winning
+                    self.__init__()
+                    return True
+                elif event.button == 1 and not self.harpoon.active and not self.character.being_pulled:
+                    # Launch harpoon
                     char_pos = (self.character.x, self.character.y)
                     world_mouse_pos = self.camera.screen_to_world(self.mouse_pos)
                     self.harpoon.launch(char_pos, world_mouse_pos)
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     return False
+                elif self.game_won and event.key == pygame.K_SPACE:
+                    # Restart game on spacebar after winning
+                    self.__init__()
+                    return True
         return True
     
     def on_collision(self, arbiter, space, data):
         """Handle shape collision using Pymunk collision data"""
+        if self.shapes_frozen:
+            return False  # Don't process collisions when game is won
+        
         # Get the colliding shapes
         shape_a, shape_b = arbiter.shapes
         shape_a_id, shape_b_id = shape_a.shape_id, shape_b.shape_id
@@ -1054,7 +1052,6 @@ class Game:
         
         # Get collision normal and point
         normal = arbiter.normal
-        point = arbiter.contact_point_set.points[0].point_a
         
         # Calculate relative velocity along normal
         rel_velocity = [
@@ -1075,67 +1072,39 @@ class Game:
             game_shape_a.velocity[1] -= j * normal[1] / game_shape_a.mass
             game_shape_b.velocity[0] += j * normal[0] / game_shape_b.mass
             game_shape_b.velocity[1] += j * normal[1] / game_shape_b.mass
-            
-            # Separate the shapes to prevent overlap
-            penetration = arbiter.contact_point_set.points[0].distance
-            percent = 0.2  # Penetration resolution percentage
-            slop = 0.1  # Penetration allowance
-            
-            if penetration < -slop:
-                separation = -(penetration + slop) * percent
-                
-                # Move shapes apart based on their masses
-                mass_sum = game_shape_a.mass + game_shape_b.mass
-                game_shape_a_amount = separation * (game_shape_b.mass / mass_sum)
-                game_shape_b_amount = separation * (game_shape_a.mass / mass_sum)
-                
-                if game_shape_a.is_circle:
-                    game_shape_a.center = (
-                        game_shape_a.center[0] - normal[0] * game_shape_a_amount,
-                        game_shape_a.center[1] - normal[1] * game_shape_a_amount
-                    )
-                    game_shape_a.pm_body.position = game_shape_a.center
-                else:
-                    dx = -normal[0] * game_shape_a_amount
-                    dy = -normal[1] * game_shape_a_amount
-                    game_shape_a.vertices = [(v[0] + dx, v[1] + dy) for v in game_shape_a.vertices]
-                    center_x = sum(v[0] for v in game_shape_a.vertices) / len(game_shape_a.vertices)
-                    center_y = sum(v[1] for v in game_shape_a.vertices) / len(game_shape_a.vertices)
-                    game_shape_a.pm_body.position = (center_x, center_y)
-                
-                if game_shape_b.is_circle:
-                    game_shape_b.center = (
-                        game_shape_b.center[0] + normal[0] * game_shape_b_amount,
-                        game_shape_b.center[1] + normal[1] * game_shape_b_amount
-                    )
-                    game_shape_b.pm_body.position = game_shape_b.center
-                else:
-                    dx = normal[0] * game_shape_b_amount
-                    dy = normal[1] * game_shape_b_amount
-                    game_shape_b.vertices = [(v[0] + dx, v[1] + dy) for v in game_shape_b.vertices]
-                    center_x = sum(v[0] for v in game_shape_b.vertices) / len(game_shape_b.vertices)
-                    center_y = sum(v[1] for v in game_shape_b.vertices) / len(game_shape_b.vertices)
-                    game_shape_b.pm_body.position = (center_x, center_y)
         
-        # Let Pymunk know we've handled the collision
         return True
-
+    
     def on_separate(self, arbiter, space, data):
         """Called when two shapes separate"""
         return True
-
+    
+    def check_win_condition(self):
+        """Check if player has reached the mother shape"""
+        if (self.character.current_shape_id == self.mother_shape_id and 
+            not self.character.being_pulled and not self.harpoon.active):
+            if not self.game_won:
+                self.game_won = True
+                self.win_time = pygame.time.get_ticks()
+                self.shapes_frozen = True
+                print("GAME WON! Player found their mother!")
+    
     def update(self):
+        if self.game_won:
+            return  # Stop updating when game is won
+        
         keys = pygame.key.get_pressed()
         
         # Update game time
         self.game_time += self.dt
         
         # Update all shapes with physics
-        for shape in self.shapes:
-            shape.update_physics(self.dt, self.game_time)
-        
-        # Step the Pymunk space to handle collisions
-        space.step(self.dt)
+        if not self.shapes_frozen:
+            for shape in self.shapes:
+                shape.update_physics(self.dt, self.game_time)
+            
+            # Step the Pymunk space to handle collisions
+            space.step(self.dt)
         
         # Update character position relative to moving shape
         self.character.update_position_on_moving_shape(self.shapes)
@@ -1146,31 +1115,30 @@ class Game:
         # Update harpoon
         self.harpoon.update()
         
-        # Check for harpoon collisions with moving shapes
+        # Check for harpoon collisions
         if self.harpoon.launching and not self.harpoon.hit_shape:
             char_pos = (self.character.x, self.character.y)
             for i, shape in enumerate(self.shapes):
-                if i != self.character.current_shape_id:  # Can't grapple current shape
+                if i != self.character.current_shape_id:
                     hit_pos = shape.check_line_intersection(char_pos, self.harpoon.current_pos)
                     if hit_pos:
-                        # Harpoon hit this shape!
                         self.harpoon.start_pulling_character(hit_pos, shape)
                         self.character.start_being_pulled(hit_pos, i)
                         break
         
         # Update character
         if self.character.being_pulled:
-            # Update pull target if harpoon is attached to a moving shape
-            if self.harpoon.pulling_character and self.harpoon.hit_pos:
-                # The hit position moves with the shape - we need to track it
-                # For now, keep the original hit position (simpler)
-                pass
-            
-            self.character.update_pull(self.shapes)
-            # Update harpoon start position while pulling
+            pull_completed = self.character.update_pull(self.shapes)
             self.harpoon.start_pos = (self.character.x, self.character.y)
+            
+            # Check if pull completed
+            if pull_completed:
+                # End harpoon first, then check win condition
+                self.harpoon.active = False
+                # Now check if we reached mother
+                self.check_win_condition()
         elif not self.harpoon.active:
-            # Normal movement along current shape (only when harpoon is not active)
+            # Normal movement along current shape
             if keys[pygame.K_a] or keys[pygame.K_LEFT]:
                 self.character.angle -= self.character.speed
                 if self.character.angle < 0:
@@ -1181,74 +1149,107 @@ class Game:
                 if self.character.angle > 1:
                     self.character.angle -= 1
             
-            # Update character position based on current shape
+            # Update character position
             current_shape = self.shapes[self.character.current_shape_id]
             pos = current_shape.get_position_on_perimeter(self.character.angle)
             self.character.x, self.character.y = pos
         else:
-            # Harpoon is active but not pulling - character stays in current position on moving shape
+            # Harpoon active but not pulling - stay on current shape
             current_shape = self.shapes[self.character.current_shape_id]
             pos = current_shape.get_position_on_perimeter(self.character.angle)
             self.character.x, self.character.y = pos
         
-        # End harpoon pull when character reaches target
-        if self.harpoon.pulling_character and not self.character.being_pulled:
+        # End harpoon when not pulling
+        if self.harpoon.pulling_character and not self.character.being_pulled and not self.game_won:
             self.harpoon.active = False
     
     def draw(self):
         # Background
         create_gradient_background(self.screen)
         
-        # Draw all shapes with camera
+        # Draw all shapes
         for i, shape in enumerate(self.shapes):
             is_active = (i == self.character.current_shape_id)
             shape.draw(self.screen, self.camera, is_active)
         
-        # Draw harpoon range indicator (subtle circle around character)
-        if not self.harpoon.active and not self.character.being_pulled:
+        # Draw harpoon range indicator
+        if not self.harpoon.active and not self.character.being_pulled and not self.game_won:
             char_screen_pos = self.camera.world_to_screen((self.character.x, self.character.y))
             range_radius = self.camera.scale_size(HARPOON_MAX_DISTANCE)
             pygame.draw.circle(self.screen, (50, 50, 50), 
                              (int(char_screen_pos[0]), int(char_screen_pos[1])), 
                              int(range_radius), max(1, int(self.camera.scale_size(1))))
         
-        # Draw harpoon with camera
+        # Draw harpoon
         self.harpoon.draw(self.screen, self.camera)
         
-        # Draw character with camera
+        # Draw character
         self.character.draw(self.screen, self.camera)
         
-        # Draw crosshair at mouse position (screen coordinates, no camera transform needed)
-        if not self.harpoon.active and not self.character.being_pulled:
+        # Draw directional arrow
+        if not self.game_won:
+            mother_shape = self.shapes[self.mother_shape_id]
+            self.arrow.draw(self.screen, self.character, mother_shape, self.camera)
+        
+        # Draw crosshair
+        if not self.harpoon.active and not self.character.being_pulled and not self.game_won:
             draw_crosshair(self.screen, self.mouse_pos, self.camera)
         
-        # Draw UI (screen coordinates, no camera transform)
-        title = self.title_font.render(f"Harpoon Navigator - {len(self.shapes)} Shape Chaos!", True, WHITE)
-        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 25))
-        self.screen.blit(title, title_rect)
-        
-        # Instructions
-        instructions = [
-            "A/D or Arrow Keys: Move along current shape (disabled while harpoon active)",
-            "Left Click: Launch harpoon at cursor to grab nearby moving shapes",
-            f"Current Shape: {self.shape_names[self.character.current_shape_id]} ({self.character.current_shape_id + 1}/{len(self.shapes)})",
-            f"Harpoon Range: {HARPOON_MAX_DISTANCE} pixels (gray circle)",
-            f"NEW: {len(self.shapes)} shapes moving at SPEED 32 in random directions!",
-            "Triangles, squares, circles, pentagons, hexagons, octagons, and more!",
-            "Anti-bounce protection prevents infinite collision loops!",
-            "Shapes bounce off screen walls with consistent physics!",
-            f"Camera Zoom: {self.camera.zoom:.2f}x"
-        ]
-        
-        for i, instruction in enumerate(instructions):
-            if i == 2:  # Current shape
-                color = LIGHT_GREEN
-            elif i in [4, 5]:  # New features
-                color = YELLOW
-            else:
-                color = WHITE
-            text = self.font.render(instruction, True, color)
-            self.screen.blit(text, (10, 50 + i * 18))
+        # Draw UI
+        if self.game_won:
+            # Win screen
+            win_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+            win_surface.fill((0, 0, 0, 150))  # Semi-transparent overlay
+            self.screen.blit(win_surface, (0, 0))
+            
+            # Win message
+            win_text = self.win_font.render("REUNITED!", True, MOTHER_COLOR)
+            win_rect = win_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 50))
+            self.screen.blit(win_text, win_rect)
+            
+            subtitle = self.title_font.render("You found your mother!", True, WHITE)
+            subtitle_rect = subtitle.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 20))
+            self.screen.blit(subtitle, subtitle_rect)
+            
+            # Restart instruction
+            restart_text = self.font.render("Click anywhere or press SPACE to play again", True, YELLOW)
+            restart_rect = restart_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 80))
+            self.screen.blit(restart_text, restart_rect)
+        else:
+            # Normal UI
+            title = self.title_font.render("Find Your Mother!", True, MOTHER_COLOR)
+            title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 30))
+            self.screen.blit(title, title_rect)
+            
+            # Instructions
+            instructions = [
+                "Your small character has been separated from its mother!",
+                "Navigate through the chaotic field of moving shapes to reunite!",
+                f"🎯 Target: Golden pulsating shape ({self.mother_shape_id + 1}/{len(self.shapes)})",
+                "🏹 Use your harpoon to travel between shapes",
+                "📍 Follow the golden arrow when mother is off-screen",
+                "",
+                "Controls:",
+                "• A/D or Arrow Keys: Move along current shape",
+                "• Left Click: Launch harpoon at cursor",
+                f"• Harpoon Range: {HARPOON_MAX_DISTANCE} pixels (gray circle)"
+            ]
+            
+            y_start = 70
+            for i, instruction in enumerate(instructions):
+                if "Target:" in instruction or "mother" in instruction.lower():
+                    color = MOTHER_COLOR
+                elif instruction.startswith("🎯") or instruction.startswith("🏹") or instruction.startswith("📍"):
+                    color = YELLOW
+                elif instruction == "":
+                    continue
+                elif instruction == "Controls:":
+                    color = CYAN
+                else:
+                    color = WHITE
+                
+                text = self.font.render(instruction, True, color)
+                self.screen.blit(text, (10, y_start + i * 25))
         
         pygame.display.flip()
     
