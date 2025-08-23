@@ -1531,7 +1531,7 @@ class Game:
             # Current shape mood indicator
             current_shape = self.shapes[self.character.current_shape_id]
             mood_color = LIGHT_GREEN if current_shape.mood == 'happy' else RED
-            mood_text = f"Current Shape: {'😊 Happy' if current_shape.mood == 'happy' else '😠 Angry'} - {'Healing' if current_shape.mood == 'happy' else 'Taking Damage!'}"
+            mood_text = f"Current Shape: {'[Happy]' if current_shape.mood == 'happy' else '[Angry]'} - {'Healing' if current_shape.mood == 'happy' else 'Taking Damage!'}"
             
             mood_surface = self.font.render(mood_text, True, mood_color)
             mood_rect = mood_surface.get_rect(center=(SCREEN_WIDTH // 2, 70))
@@ -1539,20 +1539,20 @@ class Game:
             
             # Instructions (shortened for space with health bar)
             instructions = [
-                "🎯 Navigate to the pulsating golden mother shape to win!",
-                "😊 Happy shapes (smiling) heal you over time",
-                "😠 Angry shapes (frowning) drain your health - avoid staying too long!",
-                "🏹 Use harpoon (Left Click) to escape dangerous shapes",
-                "📍 Follow the golden arrow when mother is off-screen"
+                "[!] Navigate to the pulsating golden mother shape to win!",
+                "(*) Happy shapes (smiling) heal you over time",
+                "(!) Angry shapes (frowning) drain your health - avoid staying too long!",
+                ">>> Use harpoon (Left Click) to escape dangerous shapes",
+                "--> Follow the golden arrow when mother is off-screen"
             ]
             
             y_start = 100
             for i, instruction in enumerate(instructions):
                 if "mother" in instruction.lower():
                     color = MOTHER_COLOR
-                elif "😊" in instruction or "heal" in instruction.lower():
+                elif "(*)" in instruction or "heal" in instruction.lower():
                     color = LIGHT_GREEN
-                elif "😠" in instruction or "drain" in instruction.lower() or "dangerous" in instruction.lower():
+                elif "(!)" in instruction or "drain" in instruction.lower() or "dangerous" in instruction.lower():
                     color = RED
                 else:
                     color = WHITE
