@@ -1350,7 +1350,7 @@ class Game:
             self.screen_flash_timer -= self.dt
         
         # Health system - check current shape mood and apply effects
-        if not self.character.being_pulled and not self.harpoon.active:
+        if not self.character.being_pulled:  # Only check if we're not being pulled to another shape
             current_shape = self.shapes[self.character.current_shape_id]
             
             if current_shape.mood == 'angry':
