@@ -1612,7 +1612,7 @@ class Game:
         print("Generating 100+ shapes across expanded world...")
         
         # Generate shapes with non-overlapping positions
-        num_shapes = 104  # Doubled for more exploration challenge
+        num_shapes = 150  # Doubled for more exploration challenge
         for i in range(num_shapes):
             shape = generate_shape_at_valid_position(self.shapes, i)
             self.shapes.append(shape)
