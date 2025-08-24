@@ -1619,75 +1619,86 @@ class Game:
             if i % 20 == 0:  # Print every 20 shapes for 104 total
                 print(f"Generated {i+1}/{num_shapes} shapes...")
         
-        # First, find all happy shapes that could be starting positions
-        happy_shapes = [i for i, shape in enumerate(self.shapes) if shape.mood == 'happy']
-        if not happy_shapes:
-            # If no happy shapes (shouldn't happen due to 70% happy ratio), make one happy
-            char_start_shape = random.randint(0, len(self.shapes) - 1)
-            self.shapes[char_start_shape].mood = 'happy'
-        else:
-            # Select a random happy shape for starting position
-            char_start_shape = random.choice(happy_shapes)
+        # Define the four corners of the map
+        corners = [
+            (100, 100),  # Top-left
+            (WORLD_WIDTH - 100, 100),  # Top-right
+            (100, WORLD_HEIGHT - 100),  # Bottom-left
+            (WORLD_WIDTH - 100, WORLD_HEIGHT - 100)  # Bottom-right
+        ]
         
-        start_shape = self.shapes[char_start_shape]
+        # Choose a random corner for the character
+        char_corner_index = random.randint(0, 3)
+        char_corner = corners[char_corner_index]
+        
+        # Find the diametrically opposed corner for the mother
+        # The correct diametrically opposed corners are:
+        # 0 (top-left) ↔ 3 (bottom-right)
+        # 1 (top-right) ↔ 2 (bottom-left)
+        mother_corner_index = 3 - char_corner_index
+        mother_corner = corners[mother_corner_index]
+        
+        # Find the shape closest to the character corner
+        closest_char_shape = None
+        closest_char_distance = float('inf')
+        
+        for i, shape in enumerate(self.shapes):
+            if shape.mood == 'happy':  # Only consider happy shapes for starting position
+                center = shape.get_center()
+                distance = math.sqrt((char_corner[0] - center[0])**2 + (char_corner[1] - center[1])**2)
+                if distance < closest_char_distance:
+                    closest_char_distance = distance
+                    closest_char_shape = i
+        
+        # If no happy shape found, use any shape
+        if closest_char_shape is None:
+            closest_char_shape = 0
+            for i, shape in enumerate(self.shapes):
+                center = shape.get_center()
+                distance = math.sqrt((char_corner[0] - center[0])**2 + (char_corner[1] - center[1])**2)
+                if distance < closest_char_distance:
+                    closest_char_distance = distance
+                    closest_char_shape = i
+        
+        # Set the character start position
+        start_shape = self.shapes[closest_char_shape]
         start_pos = start_shape.get_position_on_perimeter(0.0)
         
-        # Create a new mother shape at a distant position
-        min_distance = 800  # Minimum distance in pixels between start and mother
-        max_attempts = 100
-        best_distance = 0
-        best_position = None
-        margin = 100
-        self.mother_shape_id = None
-
-        # Try to find a valid position for mother that's far from start
-        for _ in range(max_attempts):
-            # Random position in expanded world
-            x = random.randint(margin, WORLD_WIDTH - margin)
-            y = random.randint(margin, WORLD_HEIGHT - margin)
-            
-            # Calculate distance from start position
-            distance = math.sqrt((start_pos[0] - x)**2 + (start_pos[1] - y)**2)
-            
-            # Check if position is valid and far enough
-            if distance >= min_distance and is_position_valid(x, y, 80, self.shapes):
-                # Create mother shape here
-                mother_shape = Shape(center=(x, y), radius=80, color=WHITE, shape_id=len(self.shapes), is_mother=True)
-                mother_shape.mood = 'happy'  # Mother is always happy
-                self.shapes.append(mother_shape)
-                self.mother_shape_id = len(self.shapes) - 1
-                break
-            
-            # Keep track of best position if we can't find an ideal one
-            if distance > best_distance and is_position_valid(x, y, 80, self.shapes):
-                best_distance = distance
-                best_position = (x, y)
+        # Find the shape closest to the mother corner
+        closest_mother_shape = None
+        closest_mother_distance = float('inf')
         
-        # If we couldn't find an ideal position, use the best one we found
-        if self.mother_shape_id is None and best_position is not None:
-            x, y = best_position
-            mother_shape = Shape(center=(x, y), radius=80, color=WHITE, shape_id=len(self.shapes), is_mother=True)
-            mother_shape.mood = 'happy'  # Mother is always happy
-            self.shapes.append(mother_shape)
-            self.mother_shape_id = len(self.shapes) - 1
-        elif self.mother_shape_id is None:
-            # Last resort: just place it somewhere valid
-            for _ in range(max_attempts):
-                x = random.randint(margin, WORLD_WIDTH - margin)
-                y = random.randint(margin, WORLD_HEIGHT - margin)
-                if is_position_valid(x, y, 80, self.shapes):
-                    mother_shape = Shape(center=(x, y), radius=80, color=WHITE, shape_id=len(self.shapes), is_mother=True)
-                    mother_shape.mood = 'happy'  # Mother is always happy
-                    self.shapes.append(mother_shape)
-                    self.mother_shape_id = len(self.shapes) - 1
-                    break
+        for i, shape in enumerate(self.shapes):
+            center = shape.get_center()
+            distance = math.sqrt((mother_corner[0] - center[0])**2 + (mother_corner[1] - center[1])**2)
+            if distance < closest_mother_distance:
+                closest_mother_distance = distance
+                closest_mother_shape = i
         
-        # Calculate final distance for reporting
-        mother_center = self.shapes[self.mother_shape_id].get_center()
+        # Instead of converting an existing shape, remove it and create a new mother shape
+        # This ensures the mother is always a circle with proper visual properties
+        mother_shape_center = self.shapes[closest_mother_shape].get_center()
+        # Remove the existing shape
+        del self.shapes[closest_mother_shape]
+        
+        # Create a new mother shape (always a circle)
+        mother_shape = Shape(center=mother_shape_center, radius=80, color=WHITE, 
+                            shape_id=closest_mother_shape, is_mother=True)
+        mother_shape.mood = 'happy'  # Mother is always happy
+        
+        # Insert the mother shape at the same index
+        self.shapes.insert(closest_mother_shape, mother_shape)
+        self.mother_shape_id = closest_mother_shape
+        
+        # Calculate distance for reporting
+        mother_center = mother_shape.get_center()
         final_distance = math.sqrt((start_pos[0] - mother_center[0])**2 + 
                                  (start_pos[1] - mother_center[1])**2)
         
-        print(f"Mother shape selected: Shape {self.mother_shape_id} (Type: {'Circle' if self.shapes[self.mother_shape_id].is_circle else 'Polygon'})")
+        print(f"Character corner: {char_corner_index} ({char_corner[0]}, {char_corner[1]})")
+        print(f"Mother corner: {mother_corner_index} ({mother_corner[0]}, {mother_corner[1]})")
+        print(f"Character shape: Shape {closest_char_shape}")
+        print(f"Mother shape: Shape {self.mother_shape_id}")
         print(f"Distance from start to mother: {final_distance:.0f} pixels")
         
         # Count and report shape mood distribution
@@ -1697,7 +1708,7 @@ class Game:
         
         # Create character at the predetermined starting position
         self.character = Character(start_pos[0], start_pos[1])
-        self.character.current_shape_id = char_start_shape
+        self.character.current_shape_id = closest_char_shape
         
         # Create harpoon
         self.harpoon = Harpoon()
