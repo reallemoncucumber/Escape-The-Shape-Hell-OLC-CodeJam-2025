@@ -766,16 +766,16 @@ class Shape:
             # Left eyebrow (angled down towards center)
             left_brow_start = (int(left_eye_pos[0] - brow_length//2), int(left_eye_pos[1] - camera.scale_size(6 * face_scale)))
             left_brow_end = (int(left_eye_pos[0] + brow_length//2), int(left_eye_pos[1] - camera.scale_size(3 * face_scale)))
-            pygame.draw.line(screen, RED, left_brow_start, left_brow_end, brow_width)
+            pygame.draw.line(screen, BLACK, left_brow_start, left_brow_end, brow_width)
             
             # Right eyebrow (angled down towards center)
             right_brow_start = (int(right_eye_pos[0] - brow_length//2), int(right_eye_pos[1] - camera.scale_size(3 * face_scale)))
             right_brow_end = (int(right_eye_pos[0] + brow_length//2), int(right_eye_pos[1] - camera.scale_size(6 * face_scale)))
-            pygame.draw.line(screen, RED, right_brow_start, right_brow_end, brow_width)
+            pygame.draw.line(screen, BLACK, right_brow_start, right_brow_end, brow_width)
             
-            # Angry eyes (small red circles)
-            pygame.draw.circle(screen, RED, left_eye_pos, eye_radius)
-            pygame.draw.circle(screen, RED, right_eye_pos, eye_radius)
+            # Angry eyes (small black circles)
+            pygame.draw.circle(screen, BLACK, left_eye_pos, eye_radius)
+            pygame.draw.circle(screen, BLACK, right_eye_pos, eye_radius)
             
             # Angry frown (downward arc)
             frown_rect = pygame.Rect(
@@ -784,7 +784,7 @@ class Shape:
                 camera.scale_size(24 * face_scale),
                 camera.scale_size(12 * face_scale)
             )
-            pygame.draw.arc(screen, RED, frown_rect, 0, math.pi, max(1, int(camera.scale_size(2 * face_scale))))  # Changed angles for downward arc
+            pygame.draw.arc(screen, BLACK, frown_rect, 0, math.pi, max(1, int(camera.scale_size(2 * face_scale))))  # Changed angles for downward arc
     
     def get_total_perimeter(self):
         if self.is_circle:
