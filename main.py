@@ -1,8 +1,24 @@
+# /// script
+# dependencies = [
+# "pygame-ce",
+# "cffi",
+# "pymunk",
+# ]
+# ///
+
 import pygame
 import math
 import sys
 import random
 import pymunk
+import asyncio
+import platform
+import os
+
+# Platform-specific setup for web
+if sys.platform == 'emscripten':
+    # Enable pixel-perfect rendering for web canvas
+    platform.window.canvas.style.imageRendering = 'pixelated'
 
 # Initialize Pygame and Pymunk
 pygame.init()
@@ -1972,7 +1988,7 @@ class Game:
         health_surface = self.font.render(health_text, True, WHITE)
         self.screen.blit(health_surface, (bar_x, bar_y + bar_height + 5))
     
-    def run(self):
+    async def run(self):
         running = True
         while running:
             # Handle start screen
@@ -1985,6 +2001,7 @@ class Game:
                         self.init_game()  # Initialize game components
                     else:
                         self.clock.tick(FPS)
+                        await asyncio.sleep(0)  # Allow browser to process events
                         continue
             
             # Normal game loop
@@ -1992,10 +2009,11 @@ class Game:
             self.update()
             self.draw()
             self.clock.tick(FPS)
+            await asyncio.sleep(0)  # Allow browser to process events
         
         pygame.quit()
         sys.exit()
 
 if __name__ == "__main__":
     game = Game()
-    game.run()
+    asyncio.run(game.run())
