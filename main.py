@@ -354,15 +354,7 @@ class Character:
         screen_x, screen_y = screen_pos
         screen_radius = camera.scale_size(self.radius)
         
-        # Character body with glow effect
-        for i in range(3):
-            alpha = 50 - i * 15
-            glow_radius = screen_radius + camera.scale_size(i * 2)
-            glow_surf = pygame.Surface((glow_radius * 2, glow_radius * 2), pygame.SRCALPHA)
-            pygame.draw.circle(glow_surf, (*WHITE, alpha), (glow_radius, glow_radius), glow_radius)
-            screen.blit(glow_surf, (screen_x - glow_radius, screen_y - glow_radius))
-        
-        # Main body
+        # Main body (removed glow effect)
         pygame.draw.circle(screen, WHITE, (int(screen_x), int(screen_y)), int(screen_radius))
         pygame.draw.circle(screen, BLACK, (int(screen_x), int(screen_y)), int(screen_radius), max(1, int(camera.scale_size(2))))
         
