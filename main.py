@@ -1540,7 +1540,7 @@ class StartScreen:
         ]
         
         # Position the story text in the lower part of the screen, above the start button
-        story_y = SCREEN_HEIGHT - 350  # Position above the start button
+        story_y = SCREEN_HEIGHT - 450  # Position above the start button
         line_height = 25
         for i, line in enumerate(story_lines):
             story_text = story_font.render(line, True, (255, 255, 255))  # White color
