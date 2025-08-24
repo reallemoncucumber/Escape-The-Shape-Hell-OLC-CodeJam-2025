@@ -1346,12 +1346,16 @@ class StartScreen:
         # Create and position assets
         self.assets = self.create_layout()
         
-        # Button configuration remains the same
+        # Create gradient background surface for better performance
+        self.gradient_surface = self.create_gradient_surface()
+        
+        # Button configuration
         self.button_rect = pygame.Rect(SCREEN_WIDTH//2 - 100, SCREEN_HEIGHT - 100, 200, 50)
         self.button_color = (46, 204, 113)
         self.button_hover_color = (39, 174, 96)
         self.button_text = "Start Game"
         self.font = pygame.font.Font(None, 36)
+        self.button_hover = False  # Initialize hover state
     
     def create_layout(self):
         assets = []
@@ -1366,25 +1370,31 @@ class StartScreen:
             assets.clear()
             overlapping = False
             
-            # Create title at top center
+            # Create title at top center (properly centered)
+            # Load the image to get its dimensions for proper centering
+            try:
+                title_image = pygame.image.load('assets/game-title.png')
+                title_width = title_image.get_width() * title_scale
+                title_x = SCREEN_WIDTH//2 - title_width//2
+            except:
+                # Fallback if image can't be loaded
+                title_x = SCREEN_WIDTH//2 - 200
+                
             title = FloatingAsset('assets/game-title.png',
-                                SCREEN_WIDTH//2 - 150, title_margin,
+                                title_x, title_margin,
                                 max_drift=10,
                                 scale=title_scale)
             
-            # Calculate available space below title
-            available_height = SCREEN_HEIGHT - title.image.get_height() - 2 * self.margin
-            
-            # Create potential positions for other assets
+            # Position other assets on the sides to avoid obstructing the synopsis text
             positions = [
-                # Top row
-                (self.margin, title.image.get_height() + self.margin),
-                (SCREEN_WIDTH//2 - 50, title.image.get_height() + self.margin),
-                (SCREEN_WIDTH - self.margin - 100, title.image.get_height() + self.margin),
-                # Bottom row
-                (self.margin + 50, SCREEN_HEIGHT - self.margin - 100),
-                (SCREEN_WIDTH//2, SCREEN_HEIGHT - self.margin - 100),
-                (SCREEN_WIDTH - self.margin - 150, SCREEN_HEIGHT - self.margin - 100)
+                # Left side assets
+                (self.margin, SCREEN_HEIGHT//3),
+                (self.margin, SCREEN_HEIGHT//3 + 150),
+                (self.margin, SCREEN_HEIGHT//3 + 300),
+                # Right side assets
+                (SCREEN_WIDTH - self.margin - 100, SCREEN_HEIGHT//3),
+                (SCREEN_WIDTH - self.margin - 100, SCREEN_HEIGHT//3 + 150),
+                (SCREEN_WIDTH - self.margin - 100, SCREEN_HEIGHT//3 + 300)
             ]
             
             # Create other assets
@@ -1425,31 +1435,45 @@ class StartScreen:
         if not assets:
             base_scale = 0.4
             title_scale = 0.6
+            
+            # Properly center the title
+            try:
+                title_image = pygame.image.load('assets/game-title.png')
+                title_width = title_image.get_width() * title_scale
+                title_x = SCREEN_WIDTH//2 - title_width//2
+            except:
+                # Fallback if image can't be loaded
+                title_x = SCREEN_WIDTH//2 - 150
+                
             assets.append(FloatingAsset('assets/game-title.png',
-                                      SCREEN_WIDTH//2 - 100, title_margin,
+                                      title_x, title_margin,
                                       max_drift=10,
                                       scale=title_scale))
             
-            for pos, img in zip(positions, [
-                'assets/main-character-shape.png',
-                'assets/angry-shape.png',
-                'assets/angry-shape.png',
-                'assets/happy-shape.png',
-                'assets/happy-shape.png',
-                'assets/happy-shape.png'
-            ]):
+            # Position other assets on the sides
+            positions = [
+                (self.margin, SCREEN_HEIGHT//3),
+                (self.margin, SCREEN_HEIGHT//3 + 150),
+                (self.margin, SCREEN_HEIGHT//3 + 300),
+                (SCREEN_WIDTH - self.margin - 100, SCREEN_HEIGHT//3),
+                (SCREEN_WIDTH - self.margin - 100, SCREEN_HEIGHT//3 + 150),
+                (SCREEN_WIDTH - self.margin - 100, SCREEN_HEIGHT//3 + 300)
+            ]
+            
+            for i, pos in enumerate(positions):
+                img = [
+                    'assets/main-character-shape.png',
+                    'assets/angry-shape.png',
+                    'assets/angry-shape.png',
+                    'assets/happy-shape.png',
+                    'assets/happy-shape.png',
+                    'assets/happy-shape.png'
+                ][i]
                 assets.append(FloatingAsset(img, pos[0], pos[1],
                                           max_drift=20,
                                           scale=base_scale))
         
         return assets
-        
-        # Start button
-        self.button_rect = pygame.Rect(SCREEN_WIDTH//2 - 100, SCREEN_HEIGHT - 100, 200, 50)
-        self.button_color = (46, 204, 113)  # Light green
-        self.button_hover_color = (39, 174, 96)  # Darker green
-        self.button_text = "Start Game"
-        self.font = pygame.font.Font(None, 36)
     
     def update(self):
         for asset in self.assets:
@@ -1467,29 +1491,6 @@ class StartScreen:
                 self.done = True
         
         return False
-    
-    def __init__(self, screen):
-        self.screen = screen
-        self.clock = pygame.time.Clock()
-        self.done = False
-        
-        # Layout configuration
-        self.margin = 60
-        self.min_spacing = 40
-        
-        # Create and position assets
-        self.assets = self.create_layout()
-        
-        # Create gradient background surface for better performance
-        self.gradient_surface = self.create_gradient_surface()
-        
-        # Button configuration remains the same
-        self.button_rect = pygame.Rect(SCREEN_WIDTH//2 - 100, SCREEN_HEIGHT - 100, 200, 50)
-        self.button_color = (46, 204, 113)
-        self.button_hover_color = (39, 174, 96)
-        self.button_text = "Start Game"
-        self.font = pygame.font.Font(None, 36)
-        self.button_hover = False  # Initialize hover state
     
     def create_gradient_surface(self):
         """Create a gradient surface for the start screen background"""
@@ -1521,6 +1522,30 @@ class StartScreen:
         text = self.font.render(self.button_text, True, (255, 255, 255))
         text_rect = text.get_rect(center=self.button_rect.center)
         self.screen.blit(text, text_rect)
+        
+        # Draw story text in white
+        story_font = pygame.font.Font(None, 24)
+        story_lines = [
+            "In the vast, gentle expanse of the geometric ether, little Bob, a shape of impeccable roundness,",
+            "was snoozing soundly, drifting peacefully beside his dear old Mum. All was calm, all was bright.",
+            "",
+            "That is, until a grumpy, pointy rotter came barging through with frightful manners,",
+            "knocking right into Mum! It wasn't a great shove, mind you, just a bit of a nudge,",
+            "but it was enough to set poor, sleeping Bob adrift.",
+            "",
+            "When he awoke, the world was suddenly very big and Mum was nowhere to be seen.",
+            "But Bob, with those amazing pink cheeks he has from his mother, didn't despair!",
+            "He simply readied his trusty harpoon, gave his brilliant FindMUMmeter a confident tap,",
+            "and set off on his grand adventure home."
+        ]
+        
+        # Position the story text in the lower part of the screen, above the start button
+        story_y = SCREEN_HEIGHT - 350  # Position above the start button
+        line_height = 25
+        for i, line in enumerate(story_lines):
+            story_text = story_font.render(line, True, (255, 255, 255))  # White color
+            story_rect = story_text.get_rect(center=(SCREEN_WIDTH // 2, story_y + i * line_height))
+            self.screen.blit(story_text, story_rect)
         
         pygame.display.flip()
 
