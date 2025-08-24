@@ -43,6 +43,7 @@ start_background_music()
 SCREEN_WIDTH = 1920 
 SCREEN_HEIGHT = 1080    
 FPS = 60
+TARGET_FRAME_TIME = 1000.0 / FPS  # Target frame time in milliseconds
 HARPOON_MAX_DISTANCE = 200
 HARPOON_SPEED = 8
 PULL_SPEED = 6
@@ -131,29 +132,36 @@ class Camera:
         return size * self.zoom
     
     def is_visible(self, shape):
-        """Check if a shape is visible within the camera view (frustum culling)"""
+        """Check if a shape is visible within the camera view (frustum culling) - optimized version"""
         # Get the bounding box of the shape
         if shape.is_circle:
             # For circles, calculate screen bounds
             center_x, center_y = shape.center
             radius = shape.radius
             
-            # Calculate screen bounds of the circle
-            left = (center_x - radius - self.x) * self.zoom
-            right = (center_x + radius - self.x) * self.zoom
-            top = (center_y - radius - self.y) * self.zoom
-            bottom = (center_y + radius - self.y) * self.zoom
+            # Calculate screen bounds of the circle with a margin for performance
+            margin = radius * self.zoom  # Use radius as margin
+            left = (center_x - self.x) * self.zoom - margin
+            right = (center_x - self.x) * self.zoom + margin
+            top = (center_y - self.y) * self.zoom - margin
+            bottom = (center_y - self.y) * self.zoom + margin
         else:
             # For polygons, use the pre-calculated collision bounds for efficiency
             bounds = shape.collision_bounds
-            left = (bounds[0] - self.x) * self.zoom
-            right = (bounds[2] - self.x) * self.zoom
-            top = (bounds[1] - self.y) * self.zoom
-            bottom = (bounds[3] - self.y) * self.zoom
+            # Add a small margin to ensure we don't cull shapes that are partially visible
+            margin = 20 * self.zoom
+            left = (bounds[0] - self.x) * self.zoom - margin
+            right = (bounds[2] - self.x) * self.zoom + margin
+            top = (bounds[1] - self.y) * self.zoom - margin
+            bottom = (bounds[3] - self.y) * self.zoom + margin
         
         # Check if the shape's bounding box intersects with the screen
-        return not (right < 0 or left > self.screen_width or 
-                   bottom < 0 or top > self.screen_height)
+        # Simplified check for better performance
+        if right < 0 or left > self.screen_width:
+            return False
+        if bottom < 0 or top > self.screen_height:
+            return False
+        return True
 
 class Harpoon:
     def __init__(self):
@@ -255,17 +263,21 @@ class Harpoon:
         # Convert positions to screen coordinates - always use current character position as start
         screen_start = camera.world_to_screen(character_pos)
         
-        # Draw harpoon line
+        # Draw harpoon line with simplified width calculations
+        line_width = max(1, int(camera.scale_size(2)))
+        hook_radius = max(2, int(camera.scale_size(3)))  # Minimum size for visibility
+        tip_radius = max(1, int(camera.scale_size(2)))   # Minimum size for visibility
+        
         if self.pulling_character and self.hit_pos:
             screen_hit = camera.world_to_screen(self.hit_pos)
-            pygame.draw.line(screen, ORANGE, screen_start, screen_hit, max(1, int(camera.scale_size(3))))
+            pygame.draw.line(screen, ORANGE, screen_start, screen_hit, line_width + 1)
             # Draw harpoon hook at hit position
-            pygame.draw.circle(screen, RED, (int(screen_hit[0]), int(screen_hit[1])), int(camera.scale_size(5)))
+            pygame.draw.circle(screen, RED, (int(screen_hit[0]), int(screen_hit[1])), hook_radius)
         else:
             screen_current = camera.world_to_screen(self.current_pos)
-            pygame.draw.line(screen, WHITE, screen_start, screen_current, max(1, int(camera.scale_size(2))))
+            pygame.draw.line(screen, WHITE, screen_start, screen_current, line_width)
             # Draw harpoon tip
-            pygame.draw.circle(screen, RED, (int(screen_current[0]), int(screen_current[1])), int(camera.scale_size(3)))
+            pygame.draw.circle(screen, RED, (int(screen_current[0]), int(screen_current[1])), tip_radius)
 
 class Character:
     def __init__(self, x, y):
@@ -379,32 +391,38 @@ class Character:
         screen_x, screen_y = screen_pos
         screen_radius = camera.scale_size(self.radius)
         
-        # Main body (removed glow effect)
-        pygame.draw.circle(screen, WHITE, (int(screen_x), int(screen_y)), int(screen_radius))
-        pygame.draw.circle(screen, BLACK, (int(screen_x), int(screen_y)), int(screen_radius), max(1, int(camera.scale_size(2))))
-        
-        # Friendly face for the baby character
-        
-        # Eyes
-        eye_offset = camera.scale_size(4)
-        eye_radius = camera.scale_size(2)
-        left_eye = (int(screen_x - eye_offset), int(screen_y - camera.scale_size(3)))
-        right_eye = (int(screen_x + eye_offset), int(screen_y - camera.scale_size(3)))
-        pygame.draw.circle(screen, BLACK, left_eye, int(eye_radius))
-        pygame.draw.circle(screen, BLACK, right_eye, int(eye_radius))
-        
-        # Happy smile
-        smile_size = camera.scale_size(8)
-        smile_rect = pygame.Rect(screen_x - smile_size/2, screen_y - camera.scale_size(1), smile_size, camera.scale_size(5))
-        pygame.draw.arc(screen, BLACK, smile_rect, math.pi, 2 * math.pi, max(1, int(camera.scale_size(2))))
-        
-        # Cheek blush for extra cuteness
-        cheek_radius = camera.scale_size(2)
-        cheek_color = (255, 200, 200)  # Light pink
-        left_cheek = (int(screen_x - camera.scale_size(7)), int(screen_y + camera.scale_size(1)))
-        right_cheek = (int(screen_x + camera.scale_size(7)), int(screen_y + camera.scale_size(1)))
-        pygame.draw.circle(screen, cheek_color, left_cheek, int(cheek_radius))
-        pygame.draw.circle(screen, cheek_color, right_cheek, int(cheek_radius))
+        # Only draw character details if it's large enough to be visible
+        if screen_radius > 3:
+            # Main body (removed glow effect)
+            pygame.draw.circle(screen, WHITE, (int(screen_x), int(screen_y)), int(screen_radius))
+            pygame.draw.circle(screen, BLACK, (int(screen_x), int(screen_y)), int(screen_radius), max(1, int(camera.scale_size(2))))
+            
+            # Friendly face for the baby character - only draw if large enough
+            if screen_radius > 5:
+                # Eyes
+                eye_offset = camera.scale_size(4)
+                eye_radius = camera.scale_size(2)
+                left_eye = (int(screen_x - eye_offset), int(screen_y - camera.scale_size(3)))
+                right_eye = (int(screen_x + eye_offset), int(screen_y - camera.scale_size(3)))
+                pygame.draw.circle(screen, BLACK, left_eye, int(eye_radius))
+                pygame.draw.circle(screen, BLACK, right_eye, int(eye_radius))
+                
+                # Happy smile
+                smile_size = camera.scale_size(8)
+                smile_rect = pygame.Rect(screen_x - smile_size/2, screen_y - camera.scale_size(1), smile_size, camera.scale_size(5))
+                pygame.draw.arc(screen, BLACK, smile_rect, math.pi, 2 * math.pi, max(1, int(camera.scale_size(2))))
+                
+                # Cheek blush for extra cuteness (only if large enough)
+                if screen_radius > 6:
+                    cheek_radius = camera.scale_size(2)
+                    cheek_color = (255, 200, 200)  # Light pink
+                    left_cheek = (int(screen_x - camera.scale_size(7)), int(screen_y + camera.scale_size(1)))
+                    right_cheek = (int(screen_x + camera.scale_size(7)), int(screen_y + camera.scale_size(1)))
+                    pygame.draw.circle(screen, cheek_color, left_cheek, int(cheek_radius))
+                    pygame.draw.circle(screen, cheek_color, right_cheek, int(cheek_radius))
+        else:
+            # Simplified drawing for very small character
+            pygame.draw.circle(screen, WHITE, (int(screen_x), int(screen_y)), int(screen_radius))
 
 class Shape:
     def __init__(self, vertices=None, center=None, radius=None, color=WHITE, shape_id=0, is_mother=False):
@@ -598,58 +616,41 @@ class Shape:
         color = self.color
         width = max(1, int(camera.scale_size(5 if is_active else 3)))
         
-        # Special mother shape effects
+        # Special mother shape effects - simplified for performance
         if self.is_mother:
             pulse_factor = 0.8 + 0.4 * math.sin(self.mother_pulse_time)
             
-            # Pulsating outer glow - white with a slight hint of warmth
-            glow_size = max(1, int(camera.scale_size(8 * pulse_factor)))
-            if self.is_circle:
-                screen_center = camera.world_to_screen(self.center)
-                glow_radius = camera.scale_size(self.radius + 10 * pulse_factor)
-                
-                # Create glow surface with alpha
-                glow_surf = pygame.Surface((glow_radius * 2, glow_radius * 2), pygame.SRCALPHA)
-                alpha = int(100 * pulse_factor)
-                # Using slightly warm white for glow (255, 255, 245)
-                pygame.draw.circle(glow_surf, (255, 255, 245, alpha), 
-                                 (glow_radius, glow_radius), glow_radius)
-                screen.blit(glow_surf, (screen_center[0] - glow_radius, screen_center[1] - glow_radius))
-            else:
-                # Polygon glow effect (should never happen now that mother is always circle)
-                center = self.get_center()
-                for v in self.vertices:
-                    screen_pos = camera.world_to_screen(v)
-                    glow_surf = pygame.Surface((20, 20), pygame.SRCALPHA)
-                    alpha = int(150 * pulse_factor)
-                    pygame.draw.circle(glow_surf, (255, 255, 245, alpha), (10, 10), 10)
-                    screen.blit(glow_surf, (screen_pos[0] - 10, screen_pos[1] - 10))
+            # Simplified pulsating effect - only draw glow every few frames
+            if int(self.mother_pulse_time * 10) % 5 == 0:  # Only draw glow every 5 frames
+                if self.is_circle:
+                    screen_center = camera.world_to_screen(self.center)
+                    glow_radius = camera.scale_size(self.radius + 5 * pulse_factor)
+                    alpha = int(80 * pulse_factor)
+                    # Simplified glow using multiple circles instead of surface creation
+                    for i in range(3):
+                        radius = glow_radius - i * 2
+                        if radius > 0:
+                            pygame.draw.circle(screen, (255, 255, 245, alpha // (i+1)), 
+                                             (int(screen_center[0]), int(screen_center[1])), 
+                                             radius, 1)
             
             # Animate the main shape width
-            width = max(1, int(camera.scale_size(3 + 4 * pulse_factor)))
+            width = max(1, int(camera.scale_size(3 + 2 * pulse_factor)))  # Reduced pulse range
         
-        # Add glow effect for active shape
+        # Add simplified glow effect for active shape
         if is_active:
-            glow_color = tuple(min(255, c + 50) for c in self.color)
-            glow_width = max(1, int(camera.scale_size(2)))
+            glow_color = tuple(min(255, c + 30) for c in self.color)  # Reduced glow intensity
+            glow_width = max(1, int(camera.scale_size(1)))  # Thinner glow
             if self.is_circle:
                 screen_center = camera.world_to_screen(self.center)
-                screen_radius = camera.scale_size(self.radius + 3)
+                screen_radius = camera.scale_size(self.radius + 2)
                 pygame.draw.circle(screen, glow_color, 
                                  (int(screen_center[0]), int(screen_center[1])), 
                                  int(screen_radius), glow_width)
             else:
-                center = self.get_center()
-                glow_vertices = []
-                for v in self.vertices:
-                    dx, dy = v[0] - center[0], v[1] - center[1]
-                    length = math.sqrt(dx*dx + dy*dy)
-                    if length > 0:
-                        dx, dy = dx/length * 3, dy/length * 3
-                    glow_world_pos = (v[0] + dx, v[1] + dy)
-                    glow_vertices.append(camera.world_to_screen(glow_world_pos))
-                if len(glow_vertices) > 2:
-                    pygame.draw.polygon(screen, glow_color, glow_vertices, glow_width)
+                screen_vertices = [camera.world_to_screen(v) for v in self.vertices]
+                if len(screen_vertices) > 2:
+                    pygame.draw.polygon(screen, glow_color, screen_vertices, glow_width)
         
         # Main shape
         if self.is_circle:
@@ -682,8 +683,20 @@ class Shape:
                     # Just outline for regular shapes
                     pygame.draw.polygon(screen, color, screen_vertices, width)
         
-        # Draw face based on mood
-        self.draw_face(screen, camera)
+        # Draw face based on mood - only draw faces for visible shapes
+        # Skip drawing faces for very small shapes to improve performance
+        if self.is_circle:
+            if self.radius > 20:  # Only draw face if shape is large enough
+                self.draw_face(screen, camera)
+        else:
+            # For polygons, estimate if large enough by checking vertex spread
+            if len(self.vertices) > 0:
+                min_x = min(v[0] for v in self.vertices)
+                max_x = max(v[0] for v in self.vertices)
+                min_y = min(v[1] for v in self.vertices)
+                max_y = max(v[1] for v in self.vertices)
+                if (max_x - min_x) > 40 or (max_y - min_y) > 40:  # Large enough
+                    self.draw_face(screen, camera)
     
     def draw_face(self, screen, camera):
         """Draw a face on the shape based on its mood"""
@@ -703,6 +716,11 @@ class Shape:
             face_scale = min(avg_size / 60, 1.5)
         
         face_scale = max(0.3, face_scale)  # Minimum readable size
+        
+        # Skip drawing faces that would be too small to see
+        if face_scale < 0.5:
+            return
+            
         screen_face_scale = camera.scale_size(face_scale)
         
         # Eye positions and sizes
@@ -727,8 +745,8 @@ class Shape:
             )
             pygame.draw.arc(screen, BLACK, smile_rect, math.pi, 2 * math.pi, max(1, int(camera.scale_size(2 * face_scale))))
             
-            # Add blush to mother shape
-            if self.is_mother:
+            # Add blush to mother shape (only if large enough)
+            if self.is_mother and face_scale > 0.7:
                 cheek_radius = camera.scale_size(6 * face_scale)
                 cheek_color = (255, 200, 200)  # Light pink
                 left_cheek = (int(screen_center[0] - camera.scale_size(20 * face_scale)), 
@@ -935,12 +953,13 @@ class BackgroundShape:
         return self.lifetime > 0
 
     def draw(self, screen):
-        shape_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        # Draw directly to screen without creating intermediate surface
         if self.is_circle:
-            pygame.draw.circle(shape_surface, (255, 255, 255, self.alpha), (self.x, self.y), self.size)
+            pygame.draw.circle(screen, (255, 255, 255, self.alpha), (self.x, self.y), self.size)
         else:
-            pygame.draw.polygon(shape_surface, (255, 255, 255, self.alpha), self.vertices)
-        screen.blit(shape_surface, (0, 0))
+            # Only draw if we have valid vertices
+            if len(self.vertices) >= 3:
+                pygame.draw.polygon(screen, (255, 255, 255, self.alpha), self.vertices)
 
 # List to keep track of background shapes
 background_shapes = []
@@ -948,6 +967,8 @@ background_time = 0
 
 # Create gradient surface once for better performance
 gradient_surface = None
+animated_gradient_surface = None
+last_background_time = 0
 
 def create_gradient_surface():
     """Create a gradient surface for the background"""
@@ -964,35 +985,50 @@ def create_gradient_surface():
         pygame.draw.line(gradient_surface, color, (0, y), (SCREEN_WIDTH, y))
 
 def create_gradient_background(screen):
-    global background_time, background_shapes, gradient_surface
+    global background_time, background_shapes, gradient_surface, animated_gradient_surface, last_background_time
     
     # Create gradient surface if it doesn't exist
     if gradient_surface is None:
         create_gradient_surface()
+        animated_gradient_surface = gradient_surface.copy()
     
-    # Update background time for color cycling (slower)
-    background_time += 0.002  # Reduced from 0.01 for slower cycling
-    
-    # Create a copy of the gradient surface to apply color cycling effect
-    animated_surface = gradient_surface.copy()
-    
-    # Apply color cycling effect to the entire surface at once
-    pixels = pygame.PixelArray(animated_surface)
-    for y in range(SCREEN_HEIGHT):
-        # Create bright cycling colors using sine waves with different phases
-        # Minimum value increased to 180 to ensure only bright colors
-        r_offset = int(20 * math.sin(background_time + y * 0.001))
-        g_offset = int(20 * math.sin(background_time * 1.3 + y * 0.001))
-        b_offset = int(20 * math.sin(background_time * 0.7 + y * 0.001))
-        pixels[:, y] = (
-            max(0, min(255, (69 + (30 - 69) * (y / SCREEN_HEIGHT)) + r_offset)),
-            max(0, min(255, (183 + (60 - 183) * (y / SCREEN_HEIGHT)) + g_offset)),
-            max(0, min(255, (209 + (114 - 209) * (y / SCREEN_HEIGHT)) + b_offset))
-        )
-    pixels.close()
+    # Only update the animated gradient when background_time has changed significantly
+    # This reduces expensive pixel operations
+    if abs(background_time - last_background_time) > 0.05:  # Update every ~3 frames
+        last_background_time = background_time
+        
+        # Update background time for color cycling (slower)
+        background_time += 0.002  # Reduced from 0.01 for slower cycling
+        
+        # Apply color cycling effect to the entire surface at once
+        animated_gradient_surface = gradient_surface.copy()
+        pixels = pygame.PixelArray(animated_gradient_surface)
+        
+        # Only update every 4th row to reduce pixel operations (interlaced effect)
+        for y in range(0, SCREEN_HEIGHT, 4):
+            # Create bright cycling colors using sine waves with different phases
+            # Minimum value increased to 180 to ensure only bright colors
+            r_offset = int(10 * math.sin(background_time + y * 0.001))
+            g_offset = int(10 * math.sin(background_time * 1.3 + y * 0.001))
+            b_offset = int(10 * math.sin(background_time * 0.7 + y * 0.001))
+            base_r = int(69 + (30 - 69) * (y / SCREEN_HEIGHT))
+            base_g = int(183 + (60 - 183) * (y / SCREEN_HEIGHT))
+            base_b = int(209 + (114 - 209) * (y / SCREEN_HEIGHT))
+            
+            color = (
+                max(0, min(255, base_r + r_offset)),
+                max(0, min(255, base_g + g_offset)),
+                max(0, min(255, base_b + b_offset))
+            )
+            
+            # Fill 4 rows with the same color to reduce operations
+            for row in range(y, min(y + 4, SCREEN_HEIGHT)):
+                pixels[:, row] = color
+                
+        pixels.close()
     
     # Draw the animated background
-    screen.blit(animated_surface, (0, 0))
+    screen.blit(animated_gradient_surface, (0, 0))
     
     # Manage background shapes
     # Remove expired shapes
@@ -1143,7 +1179,7 @@ class DirectionalArrow:
         dy = mother_center[1] - character.y
         target_angle = math.degrees(math.atan2(dy, dx))
         
-        # Update orbit position
+        # Update orbit position (less frequently for performance)
         self.orbit_angle += self.orbit_speed
         if self.orbit_angle >= 360:
             self.orbit_angle = 0
@@ -1156,17 +1192,20 @@ class DirectionalArrow:
         )
         angle = target_angle  # Use the angle that points to mother
         
-        # Create arrow points (pointing right initially)
+        # Pre-calculated arrow points (pointing right initially)
+        # Simplified to reduce trigonometric calculations
+        half_size = self.arrow_size // 2
         arrow_points = [
             (self.arrow_size, 0),      # Tip
-            (0, -self.arrow_size//2),  # Top back
-            (self.arrow_size//3, 0),   # Back middle
-            (0, self.arrow_size//2),   # Bottom back
+            (-half_size, -half_size),  # Top back
+            (0, 0),                    # Center (for simpler drawing)
+            (-half_size, half_size),   # Bottom back
         ]
         
-        # Rotate arrow points
-        cos_a = math.cos(math.radians(angle))
-        sin_a = math.sin(math.radians(angle))
+        # Rotate arrow points (simplified rotation)
+        angle_rad = math.radians(angle)
+        cos_a = math.cos(angle_rad)
+        sin_a = math.sin(angle_rad)
         
         rotated_points = []
         for px, py in arrow_points:
@@ -1174,29 +1213,28 @@ class DirectionalArrow:
             ry = px * sin_a + py * cos_a
             rotated_points.append((arrow_pos[0] + rx, arrow_pos[1] + ry))
         
-        # Draw arrow with enhanced glow effect
-        glow_color = (255, 215, 0, 150)  # Increased alpha for better visibility
+        # Simplified arrow drawing without expensive glow surface creation
         main_color = (255, 223, 0)  # Slightly more yellow/gold than pure white
+        glow_color = (255, 215, 0)  # Glow color without alpha channel for performance
         
-        # Draw glow (larger)
+        # Draw simplified glow effect (just a larger arrow behind)
         glow_points = []
         for px, py in arrow_points:
             # Scale up for glow
-            px *= 1.5  # Increased glow size
-            py *= 1.5
+            px *= 1.3
+            py *= 1.3
             rx = px * cos_a - py * sin_a
             ry = px * sin_a + py * cos_a
             glow_points.append((arrow_pos[0] + rx, arrow_pos[1] + ry))
         
-        glow_surf = pygame.Surface((self.arrow_size * 3, self.arrow_size * 3), pygame.SRCALPHA)
-        pygame.draw.polygon(glow_surf, glow_color, 
-                           [(p[0] - arrow_pos[0] + self.arrow_size * 1.5, 
-                             p[1] - arrow_pos[1] + self.arrow_size * 1.5) for p in glow_points])
-        screen.blit(glow_surf, (arrow_pos[0] - self.arrow_size * 1.5, arrow_pos[1] - self.arrow_size * 1.5))
+        # Draw glow first (behind main arrow)
+        pygame.draw.polygon(screen, glow_color, glow_points)
         
-        # Draw main arrow with outline
+        # Draw main arrow
         pygame.draw.polygon(screen, main_color, rotated_points)
-        pygame.draw.polygon(screen, (255, 235, 122), rotated_points, 3)  # Thicker, lighter outline
+        
+        # Simplified outline
+        pygame.draw.polygon(screen, (255, 235, 122), rotated_points, 2)
 
 class FloatingAsset:
     def __init__(self, image_path, x, y, max_drift=30, scale=1.0):
@@ -1852,13 +1890,27 @@ class Game:
             self.shapes_frozen = True
             return
         
-        # Update all shapes with physics
+        # Update all shapes with physics - optimized for web
         if not self.shapes_frozen:
-            for shape in self.shapes:
-                shape.update_physics(self.dt, self.game_time)
+            # Only update shapes that are potentially visible or near the character
+            character_shape_id = self.character.current_shape_id
+            for i, shape in enumerate(self.shapes):
+                # Always update character's current shape and mother shape
+                # For other shapes, only update if they might be visible
+                if (i == character_shape_id or i == self.mother_shape_id or 
+                    self.camera.is_visible(shape) or
+                    # Update nearby shapes (within 2x harpoon range)
+                    (math.sqrt((shape.get_center()[0] - self.character.x)**2 + 
+                              (shape.get_center()[1] - self.character.y)**2) < HARPOON_MAX_DISTANCE * 2)):
+                    shape.update_physics(self.dt, self.game_time)
             
-            # Step the Pymunk space to handle collisions
-            space.step(self.dt)
+            # Step the Pymunk space to handle collisions - less frequently on web
+            if sys.platform == 'emscripten':
+                # On web, step physics every other frame to reduce load
+                if int(self.game_time * FPS) % 2 == 0:
+                    space.step(self.dt)
+            else:
+                space.step(self.dt)
         
         # Update character position relative to moving shape
         self.character.update_position_on_moving_shape(self.shapes)
@@ -1951,12 +2003,14 @@ class Game:
         if not self.harpoon.active and not self.character.being_pulled and not self.game_won and not self.game_over:
             draw_crosshair(self.screen, self.mouse_pos, self.camera)
         
-        # Draw screen flash effect for damage
+        # Draw screen flash effect for damage - optimized version
         if self.screen_flash_timer > 0:
-            flash_alpha = int(100 * (self.screen_flash_timer / 0.15))  # Fade out effect
-            flash_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-            flash_surface.fill((255, 0, 0, flash_alpha))  # Red flash
-            self.screen.blit(flash_surface, (0, 0))
+            flash_alpha = int(80 * (self.screen_flash_timer / 0.15))  # Fade out effect with lower alpha
+            # Only draw flash if it's visible enough
+            if flash_alpha > 5:
+                flash_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+                flash_surface.fill((255, 0, 0, flash_alpha))  # Red flash
+                self.screen.blit(flash_surface, (0, 0))
         
         # Draw health bar (always visible during gameplay)
         if not self.game_won and not self.game_over:
@@ -2070,7 +2124,11 @@ class Game:
     
     async def run(self):
         running = True
+        last_time = pygame.time.get_ticks()
         while running:
+            current_time = pygame.time.get_ticks()
+            delta_time = current_time - last_time
+            
             # Handle start screen
             if not self.game_started:
                 running = not self.start_screen.update()
@@ -2082,14 +2140,29 @@ class Game:
                     else:
                         self.clock.tick(FPS)
                         await asyncio.sleep(0)  # Allow browser to process events
+                        last_time = current_time
                         continue
             
-            # Normal game loop
+            # Normal game loop with frame rate limiting
             running = self.handle_events()
             self.update()
             self.draw()
+            
+            # Frame rate limiting for web performance
             self.clock.tick(FPS)
+            
+            # Additional frame rate limiting for web
+            if sys.platform == 'emscripten':
+                # On web, ensure we don't exceed target frame time
+                frame_time = pygame.time.get_ticks() - current_time
+                if frame_time < TARGET_FRAME_TIME:
+                    # Sleep for remaining time (approximate)
+                    sleep_time = (TARGET_FRAME_TIME - frame_time) / 1000.0
+                    if sleep_time > 0.001:  # Only sleep if > 1ms
+                        await asyncio.sleep(sleep_time)
+            
             await asyncio.sleep(0)  # Allow browser to process events
+            last_time = current_time
         
         pygame.quit()
         sys.exit()
