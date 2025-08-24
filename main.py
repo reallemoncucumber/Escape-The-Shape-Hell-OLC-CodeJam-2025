@@ -954,12 +954,31 @@ class BackgroundShape:
 
     def draw(self, screen):
         # Draw directly to screen without creating intermediate surface
+        # Create a surface with per-pixel alpha for proper transparency
         if self.is_circle:
-            pygame.draw.circle(screen, (255, 255, 255, self.alpha), (self.x, self.y), self.size)
+            # Create a temporary surface for the circle with alpha support
+            temp_surface = pygame.Surface((self.size * 2, self.size * 2), pygame.SRCALPHA)
+            pygame.draw.circle(temp_surface, (255, 255, 255, self.alpha), (self.size, self.size), self.size)
+            screen.blit(temp_surface, (self.x - self.size, self.y - self.size))
         else:
             # Only draw if we have valid vertices
             if len(self.vertices) >= 3:
-                pygame.draw.polygon(screen, (255, 255, 255, self.alpha), self.vertices)
+                # Calculate bounding box for the polygon
+                min_x = min(v[0] for v in self.vertices)
+                max_x = max(v[0] for v in self.vertices)
+                min_y = min(v[1] for v in self.vertices)
+                max_y = max(v[1] for v in self.vertices)
+                
+                width = int(max_x - min_x)
+                height = int(max_y - min_y)
+                
+                # Create a temporary surface for the polygon with alpha support
+                if width > 0 and height > 0:
+                    temp_surface = pygame.Surface((width, height), pygame.SRCALPHA)
+                    # Adjust vertices to be relative to the surface
+                    adjusted_vertices = [(int(v[0] - min_x), int(v[1] - min_y)) for v in self.vertices]
+                    pygame.draw.polygon(temp_surface, (255, 255, 255, self.alpha), adjusted_vertices)
+                    screen.blit(temp_surface, (int(min_x), int(min_y)))
 
 # List to keep track of background shapes
 background_shapes = []
