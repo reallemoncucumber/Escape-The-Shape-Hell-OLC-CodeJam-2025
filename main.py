@@ -2062,26 +2062,30 @@ class Game:
             
             # Instructions (shortened for space with health bar)
             instructions = [
-                "[!] Navigate to the pulsating golden mother shape to win!",
-                "(*) Happy shapes (smiling) heal you over time",
-                "(!) Angry shapes (frowning) drain your health - avoid staying too long!",
-                ">>> Use harpoon (Left Click) to escape dangerous shapes",
-                "--> Follow the golden arrow when mother is off-screen"
+                "Navigate back to the mother shape to win! (she looks like you)",
+                "Happy shapes heal you over time",
+                "Angry shapes drain your health - avoid staying too long!",
+                "Use harpoon (Left Click) to navigate between shapes",
+                "Follow the golden arrow when mother is off-screen"
             ]
             
             y_start = 100
             for i, instruction in enumerate(instructions):
-                if "mother" in instruction.lower():
-                    color = MOTHER_COLOR
-                elif "(*)" in instruction or "heal" in instruction.lower():
-                    color = LIGHT_GREEN
-                elif "(!)" in instruction or "drain" in instruction.lower() or "dangerous" in instruction.lower():
-                    color = RED
-                else:
-                    color = WHITE
-                
+                color = WHITE               
                 text = self.font.render(instruction, True, color)
                 self.screen.blit(text, (10, y_start + i * 25))
+            
+            # Draw game controls in bottom left
+            controls_y = SCREEN_HEIGHT - 120
+            controls = [
+                "CONTROLS:",
+                "Left Click - Fire Harpoon towwards cursor",
+                "A/D - Move on the edge of the current shape",                
+            ]
+            
+            for i, control in enumerate(controls):
+                text = self.font.render(control, True, WHITE)
+                self.screen.blit(text, (10, controls_y + i * 25))
         
         pygame.display.flip()
     
