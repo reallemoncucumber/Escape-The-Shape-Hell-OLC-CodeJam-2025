@@ -2151,16 +2151,6 @@ class Game:
             # Frame rate limiting for web performance
             self.clock.tick(FPS)
             
-            # Additional frame rate limiting for web
-            if sys.platform == 'emscripten':
-                # On web, ensure we don't exceed target frame time
-                frame_time = pygame.time.get_ticks() - current_time
-                if frame_time < TARGET_FRAME_TIME:
-                    # Sleep for remaining time (approximate)
-                    sleep_time = (TARGET_FRAME_TIME - frame_time) / 1000.0
-                    if sleep_time > 0.001:  # Only sleep if > 1ms
-                        await asyncio.sleep(sleep_time)
-            
             await asyncio.sleep(0)  # Allow browser to process events
             last_time = current_time
         
