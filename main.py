@@ -1545,9 +1545,31 @@ class Game:
     
     def init_game(self):
         """Initialize game components after start screen"""
-        # Initialize physics space
+        global space
+        
+        # Clear the physics space completely if it exists
+        if 'space' in globals():
+            try:
+                # Remove all pymunk objects from the current space
+                if hasattr(space, 'shapes'):
+                    for shape in list(space.shapes):
+                        space.remove(shape)
+                if hasattr(space, 'bodies'):
+                    for body in list(space.bodies):
+                        space.remove(body)
+            except:
+                pass  # If there are any issues, we'll just create a new space
+            
+        # Reinitialize physics space
+        space = pymunk.Space()
         space.damping = 0
         space.collision_bias = 0.01
+        
+        # Reset all game state variables
+        self.game_won = False
+        self.game_over = False
+        self.win_time = 0
+        self.shapes_frozen = False
         
         # Health system and visual feedback
         self.screen_flash_timer = 0  # For damage flash effect
@@ -1572,6 +1594,7 @@ class Game:
         
         # Reset game time
         self.game_time = 0
+        self.dt = 1.0 / FPS
         
         # Set window caption
         pygame.display.set_caption(f"Find Your Mother! - {len(self.shapes)} Shapes to Explore")
@@ -1582,96 +1605,11 @@ class Game:
     
     def setup_game_objects(self):
         """Create all game objects including shapes, character, and mother"""
-        # Generate shapes with non-overlapping positions
-        print("Generating 100+ shapes across expanded world...")
+        # Clear any existing shapes array
         self.shapes = []
-        num_shapes = 104  # Number of shapes to generate
-        
-        for i in range(num_shapes):
-            shape = generate_shape_at_valid_position(self.shapes, i)
-            self.shapes.append(shape)
-            if i % 20 == 0:
-                print(f"Generated {i+1}/{num_shapes} shapes...")
-        
-        # Find valid starting position on a happy shape
-        happy_shapes = [i for i, shape in enumerate(self.shapes) if shape.mood == 'happy']
-        if not happy_shapes:
-            char_start_shape = random.randint(0, len(self.shapes) - 1)
-            self.shapes[char_start_shape].mood = 'happy'
-        else:
-            char_start_shape = random.choice(happy_shapes)
-        
-        start_shape = self.shapes[char_start_shape]
-        start_pos = start_shape.get_position_on_perimeter(0.0)
-        
-        # Create mother shape at a distant position
-        min_distance = 800
-        max_attempts = 100
-        margin = 100
-        self.mother_shape_id = None
-        best_distance = 0
-        best_position = None
-        
-        for _ in range(max_attempts):
-            x = random.randint(margin, WORLD_WIDTH - margin)
-            y = random.randint(margin, WORLD_HEIGHT - margin)
-            distance = math.sqrt((start_pos[0] - x)**2 + (start_pos[1] - y)**2)
-            
-            if distance >= min_distance and is_position_valid(x, y, 80, self.shapes):
-                mother_shape = Shape(center=(x, y), radius=80, color=WHITE, 
-                                  shape_id=len(self.shapes), is_mother=True)
-                mother_shape.mood = 'happy'
-                self.shapes.append(mother_shape)
-                self.mother_shape_id = len(self.shapes) - 1
-                break
-            
-            if distance > best_distance and is_position_valid(x, y, 80, self.shapes):
-                best_distance = distance
-                best_position = (x, y)
-        
-        # Use best position if no ideal position found
-        if self.mother_shape_id is None and best_position:
-            x, y = best_position
-            mother_shape = Shape(center=(x, y), radius=80, color=WHITE,
-                               shape_id=len(self.shapes), is_mother=True)
-            mother_shape.mood = 'happy'
-            self.shapes.append(mother_shape)
-            self.mother_shape_id = len(self.shapes) - 1
-        
-        # Create character at starting position
-        self.character = Character(start_pos[0], start_pos[1])
-        self.character.current_shape_id = char_start_shape
-        
-        # Create harpoon
-        self.harpoon = Harpoon()
-        
-        # Setup collision handler
-        handler = space.add_default_collision_handler()
-        handler.pre_solve = self.on_collision
-        handler.separate = self.on_separate
-        
-        # Log initialization stats
-        mother_center = self.shapes[self.mother_shape_id].get_center()
-        final_distance = math.sqrt((start_pos[0] - mother_center[0])**2 + 
-                                 (start_pos[1] - mother_center[1])**2)
-        print(f"Mother shape: Shape {self.mother_shape_id}")
-        print(f"Distance to mother: {final_distance:.0f} pixels")
-        happy_count = sum(1 for shape in self.shapes if shape.mood == 'happy')
-        print(f"Shape moods: {happy_count} Happy, {len(self.shapes)-happy_count} Angry")
-        
-        # Health system and visual feedback
-        self.screen_flash_timer = 0  # For damage flash effect
-        self.last_damage_time = 0  # To prevent multiple flashes per frame
-        
-        # Create camera
-        self.camera = Camera(SCREEN_WIDTH, SCREEN_HEIGHT)
-        
-        # Create directional arrow
-        self.arrow = DirectionalArrow(SCREEN_WIDTH, SCREEN_HEIGHT)
         
         # Generate 100+ shapes spread across expanded world
         print("Generating 100+ shapes across expanded world...")
-        self.shapes = []
         
         # Generate shapes with non-overlapping positions
         num_shapes = 104  # Doubled for more exploration challenge
@@ -1769,20 +1707,48 @@ class Game:
         handler.pre_solve = self.on_collision
         handler.separate = self.on_separate
         
-        # Font for instructions and win screen
-        self.font = pygame.font.Font(None, 24)
-        self.title_font = pygame.font.Font(None, 48)
-        self.win_font = pygame.font.Font(None, 72)
-        
         # Mouse position
         self.mouse_pos = (0, 0)
         
-        # Physics time step
-        self.dt = 1.0 / FPS
+        # Reset game time
         self.game_time = 0
         
         pygame.display.set_caption(f"Find Your Mother! - {len(self.shapes)} Shapes to Explore")
         print(f"Game initialized with {len(self.shapes)} shapes in {WORLD_WIDTH}x{WORLD_HEIGHT} world")
+    
+    def restart_game(self):
+        """Properly restart the game with fresh state"""
+        global space
+        
+        # Remove all pymunk objects from the current space
+        if hasattr(space, 'shapes'):
+            for shape in list(space.shapes):
+                space.remove(shape)
+        if hasattr(space, 'bodies'):
+            for body in list(space.bodies):
+                space.remove(body)
+        
+        # Reset game state variables
+        self.game_won = False
+        self.game_over = False
+        self.win_time = 0
+        self.shapes_frozen = False
+        self.screen_flash_timer = 0
+        self.last_damage_time = 0
+        self.game_time = 0
+        self.dt = 1.0 / FPS
+        
+        # Reinitialize physics space
+        space = pymunk.Space()
+        space.damping = 0
+        space.collision_bias = 0.01
+        
+        # Reinitialize all game objects
+        self.setup_game_objects()
+        
+        # Restart background music if it's not playing
+        if not pygame.mixer.music.get_busy():
+            start_background_music()
     
     def handle_events(self):
         for event in pygame.event.get():
@@ -1793,7 +1759,7 @@ class Game:
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 if self.game_won or self.game_over:
                     # Restart game on click after winning or game over
-                    self.__init__()
+                    self.restart_game()
                     return True
                 elif event.button == 1 and not self.harpoon.active and not self.character.being_pulled:
                     # Launch harpoon
@@ -1805,7 +1771,7 @@ class Game:
                     return False
                 elif (self.game_won or self.game_over) and event.key == pygame.K_SPACE:
                     # Restart game on spacebar after winning or game over
-                    self.__init__()
+                    self.restart_game()
                     return True
         return True
     
