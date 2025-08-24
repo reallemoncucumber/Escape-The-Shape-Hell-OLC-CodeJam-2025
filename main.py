@@ -2003,14 +2003,18 @@ class Game:
         if not self.harpoon.active and not self.character.being_pulled and not self.game_won and not self.game_over:
             draw_crosshair(self.screen, self.mouse_pos, self.camera)
         
-        # Draw screen flash effect for damage - optimized version
+        # Draw screen flash effect for damage - highly optimized version
         if self.screen_flash_timer > 0:
-            flash_alpha = int(80 * (self.screen_flash_timer / 0.15))  # Fade out effect with lower alpha
+            # Use a smoother, more efficient fade curve
+            flash_alpha = int(60 * (self.screen_flash_timer / 0.15) ** 1.5)  # Lower max alpha and smoother fade
             # Only draw flash if it's visible enough
-            if flash_alpha > 5:
-                flash_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-                flash_surface.fill((255, 0, 0, flash_alpha))  # Red flash
-                self.screen.blit(flash_surface, (0, 0))
+            if flash_alpha > 3:
+                if not hasattr(self, 'flash_surface'):
+                    # Create the flash surface only once
+                    self.flash_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+                    self.flash_surface.fill((255, 0, 0))  # Solid red
+                self.flash_surface.set_alpha(flash_alpha)
+                self.screen.blit(self.flash_surface, (0, 0))
         
         # Draw health bar (always visible during gameplay)
         if not self.game_won and not self.game_over:
