@@ -667,10 +667,10 @@ class Shape:
                                  (int(screen_center[0]), int(screen_center[1])), 
                                  int(screen_radius), max(1, int(camera.scale_size(2))))
             else:
-                # Just outline for regular shapes
+                # Filled circle for regular shapes (happy/angry)
                 pygame.draw.circle(screen, color, 
                                  (int(screen_center[0]), int(screen_center[1])), 
-                                 int(screen_radius), width)
+                                 int(screen_radius))
         else:
             screen_vertices = [camera.world_to_screen(v) for v in self.vertices]
             if len(screen_vertices) > 2:
@@ -680,8 +680,8 @@ class Shape:
                     # Add outline
                     pygame.draw.polygon(screen, BLACK, screen_vertices, max(1, int(camera.scale_size(2))))
                 else:
-                    # Just outline for regular shapes
-                    pygame.draw.polygon(screen, color, screen_vertices, width)
+                    # Filled polygon for regular shapes (happy/angry)
+                    pygame.draw.polygon(screen, color, screen_vertices)
         
         # Draw face based on mood - only draw faces for visible shapes
         # Skip drawing faces for very small shapes to improve performance
