@@ -129,6 +129,31 @@ class Camera:
     def scale_size(self, size):
         """Scale a size value by camera zoom"""
         return size * self.zoom
+    
+    def is_visible(self, shape):
+        """Check if a shape is visible within the camera view (frustum culling)"""
+        # Get the bounding box of the shape
+        if shape.is_circle:
+            # For circles, calculate screen bounds
+            center_x, center_y = shape.center
+            radius = shape.radius
+            
+            # Calculate screen bounds of the circle
+            left = (center_x - radius - self.x) * self.zoom
+            right = (center_x + radius - self.x) * self.zoom
+            top = (center_y - radius - self.y) * self.zoom
+            bottom = (center_y + radius - self.y) * self.zoom
+        else:
+            # For polygons, use the pre-calculated collision bounds for efficiency
+            bounds = shape.collision_bounds
+            left = (bounds[0] - self.x) * self.zoom
+            right = (bounds[2] - self.x) * self.zoom
+            top = (bounds[1] - self.y) * self.zoom
+            bottom = (bounds[3] - self.y) * self.zoom
+        
+        # Check if the shape's bounding box intersects with the screen
+        return not (right < 0 or left > self.screen_width or 
+                   bottom < 0 or top > self.screen_height)
 
 class Harpoon:
     def __init__(self):
@@ -1896,10 +1921,12 @@ class Game:
         # Background
         create_gradient_background(self.screen)
         
-        # Draw all shapes
+        # Draw only visible shapes (frustum culling)
         for i, shape in enumerate(self.shapes):
-            is_active = (i == self.character.current_shape_id)
-            shape.draw(self.screen, self.camera, is_active)
+            # Only draw shapes that are visible on screen
+            if self.camera.is_visible(shape):
+                is_active = (i == self.character.current_shape_id)
+                shape.draw(self.screen, self.camera, is_active)
         
         # Draw harpoon range indicator
         if not self.harpoon.active and not self.character.being_pulled and not self.game_won and not self.game_over:
