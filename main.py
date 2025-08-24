@@ -1133,20 +1133,380 @@ class DirectionalArrow:
         pygame.draw.polygon(screen, main_color, rotated_points)
         pygame.draw.polygon(screen, (255, 235, 122), rotated_points, 3)  # Thicker, lighter outline
 
+class FloatingAsset:
+    def __init__(self, image_path, x, y, max_drift=30, scale=1.0):
+        # Store original image for potential rescaling
+        self.original_image = pygame.image.load(image_path)
+        self.current_scale = scale
+        self.rescale_image(scale)
+        
+        # Store initial position
+        self.original_x = x
+        self.original_y = y
+        self.max_drift = max_drift
+        
+        # Set initial position within bounds
+        self.start_x = max(0, min(x, SCREEN_WIDTH - self.image.get_width()))
+        self.start_y = max(0, min(y, SCREEN_HEIGHT - self.image.get_height()))
+        self.x = self.start_x
+        self.y = self.start_y
+        self.vx = random.uniform(-0.5, 0.5)
+        self.vy = random.uniform(-0.5, 0.5)
+    
+    def rescale_image(self, scale):
+        """Rescale the image and update dimensions"""
+        new_size = (int(self.original_image.get_width() * scale), 
+                   int(self.original_image.get_height() * scale))
+        self.image = pygame.transform.smoothscale(self.original_image, new_size)
+        self.current_scale = scale
+    
+    def get_rect(self):
+        """Get the rectangle including drift area"""
+        drift_rect = pygame.Rect(
+            self.start_x - self.max_drift,
+            self.start_y - self.max_drift,
+            self.image.get_width() + 2 * self.max_drift,
+            self.image.get_height() + 2 * self.max_drift
+        )
+        return drift_rect
+    
+    def overlaps(self, other):
+        """Check if this asset's drift area overlaps with another"""
+        return self.get_rect().colliderect(other.get_rect())
+    
+    def update(self):
+        # Update position with random walker behavior
+        self.vx += random.uniform(-0.1, 0.1)
+        self.vy += random.uniform(-0.1, 0.1)
+        
+        # Dampen velocity
+        self.vx *= 0.98
+        self.vy *= 0.98
+        
+        # Update position
+        new_x = self.x + self.vx
+        new_y = self.y + self.vy
+        
+        # Keep within screen bounds
+        if new_x < 0 or new_x > SCREEN_WIDTH - self.image.get_width():
+            self.vx *= -0.5
+            new_x = max(0, min(new_x, SCREEN_WIDTH - self.image.get_width()))
+        if new_y < 0 or new_y > SCREEN_HEIGHT - self.image.get_height():
+            self.vy *= -0.5
+            new_y = max(0, min(new_y, SCREEN_HEIGHT - self.image.get_height()))
+        
+        # Keep within drift bounds
+        dx = new_x - self.start_x
+        dy = new_y - self.start_y
+        if abs(dx) > self.max_drift:
+            new_x = self.start_x + (self.max_drift if dx > 0 else -self.max_drift)
+            self.vx *= -0.5
+        if abs(dy) > self.max_drift:
+            new_y = self.start_y + (self.max_drift if dy > 0 else -self.max_drift)
+            self.vy *= -0.5
+            
+        self.x = new_x
+        self.y = new_y
+    
+    def draw(self, screen):
+        screen.blit(self.image, (self.x, self.y))
+
+class StartScreen:
+    def __init__(self, screen):
+        self.screen = screen
+        self.clock = pygame.time.Clock()
+        self.done = False
+        
+        # Layout configuration
+        self.margin = 60
+        self.min_spacing = 40
+        
+        # Create and position assets
+        self.assets = self.create_layout()
+        
+        # Button configuration remains the same
+        self.button_rect = pygame.Rect(SCREEN_WIDTH//2 - 100, SCREEN_HEIGHT - 100, 200, 50)
+        self.button_color = (46, 204, 113)
+        self.button_hover_color = (39, 174, 96)
+        self.button_text = "Start Game"
+        self.font = pygame.font.Font(None, 36)
+    
+    def create_layout(self):
+        assets = []
+        title_margin = 20
+        
+        # Start with larger scales and reduce if needed
+        base_scale = 0.8
+        title_scale = 1.0
+        max_attempts = 10
+        
+        while max_attempts > 0:
+            assets.clear()
+            overlapping = False
+            
+            # Create title at top center
+            title = FloatingAsset('assets/game-title.png',
+                                SCREEN_WIDTH//2 - 150, title_margin,
+                                max_drift=10,
+                                scale=title_scale)
+            
+            # Calculate available space below title
+            available_height = SCREEN_HEIGHT - title.image.get_height() - 2 * self.margin
+            
+            # Create potential positions for other assets
+            positions = [
+                # Top row
+                (self.margin, title.image.get_height() + self.margin),
+                (SCREEN_WIDTH//2 - 50, title.image.get_height() + self.margin),
+                (SCREEN_WIDTH - self.margin - 100, title.image.get_height() + self.margin),
+                # Bottom row
+                (self.margin + 50, SCREEN_HEIGHT - self.margin - 100),
+                (SCREEN_WIDTH//2, SCREEN_HEIGHT - self.margin - 100),
+                (SCREEN_WIDTH - self.margin - 150, SCREEN_HEIGHT - self.margin - 100)
+            ]
+            
+            # Create other assets
+            temp_assets = [
+                FloatingAsset('assets/main-character-shape.png', positions[0][0], positions[0][1], max_drift=20, scale=base_scale),
+                FloatingAsset('assets/angry-shape.png', positions[1][0], positions[1][1], max_drift=20, scale=base_scale),
+                FloatingAsset('assets/angry-shape.png', positions[2][0], positions[2][1], max_drift=20, scale=base_scale),
+                FloatingAsset('assets/happy-shape.png', positions[3][0], positions[3][1], max_drift=20, scale=base_scale),
+                FloatingAsset('assets/happy-shape.png', positions[4][0], positions[4][1], max_drift=20, scale=base_scale),
+                FloatingAsset('assets/happy-shape.png', positions[5][0], positions[5][1], max_drift=20, scale=base_scale)
+            ]
+            
+            # Check for overlaps
+            for i, asset in enumerate(temp_assets):
+                # Check overlap with title
+                if asset.overlaps(title):
+                    overlapping = True
+                    break
+                # Check overlap with previous assets
+                for j in range(i):
+                    if asset.overlaps(temp_assets[j]):
+                        overlapping = True
+                        break
+                if overlapping:
+                    break
+            
+            if not overlapping:
+                assets.append(title)
+                assets.extend(temp_assets)
+                break
+            
+            # Reduce scales and try again
+            base_scale *= 0.9
+            title_scale *= 0.95
+            max_attempts -= 1
+        
+        # If we couldn't find a perfect fit, use the smallest scale
+        if not assets:
+            base_scale = 0.4
+            title_scale = 0.6
+            assets.append(FloatingAsset('assets/game-title.png',
+                                      SCREEN_WIDTH//2 - 100, title_margin,
+                                      max_drift=10,
+                                      scale=title_scale))
+            
+            for pos, img in zip(positions, [
+                'assets/main-character-shape.png',
+                'assets/angry-shape.png',
+                'assets/angry-shape.png',
+                'assets/happy-shape.png',
+                'assets/happy-shape.png',
+                'assets/happy-shape.png'
+            ]):
+                assets.append(FloatingAsset(img, pos[0], pos[1],
+                                          max_drift=20,
+                                          scale=base_scale))
+        
+        return assets
+        
+        # Start button
+        self.button_rect = pygame.Rect(SCREEN_WIDTH//2 - 100, SCREEN_HEIGHT - 100, 200, 50)
+        self.button_color = (46, 204, 113)  # Light green
+        self.button_hover_color = (39, 174, 96)  # Darker green
+        self.button_text = "Start Game"
+        self.font = pygame.font.Font(None, 36)
+    
+    def update(self):
+        for asset in self.assets:
+            asset.update()
+            
+        # Check for button hover
+        mouse_pos = pygame.mouse.get_pos()
+        self.button_hover = self.button_rect.collidepoint(mouse_pos)
+        
+        # Handle events
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return True
+            if event.type == pygame.MOUSEBUTTONDOWN and self.button_hover:
+                self.done = True
+        
+        return False
+    
+    def draw(self):
+        # Draw gradient background
+        for y in range(0, SCREEN_HEIGHT, 2):
+            progress = y / SCREEN_HEIGHT
+            color = (
+                int(69 + (30 - 69) * progress),  # R: 69 to 30
+                int(183 + (60 - 183) * progress),  # G: 183 to 60
+                int(209 + (114 - 209) * progress)  # B: 209 to 114
+            )
+            pygame.draw.rect(self.screen, color, (0, y, SCREEN_WIDTH, 2))
+        
+        # Draw floating assets
+        for asset in self.assets:
+            asset.draw(self.screen)
+        
+        # Draw start button
+        color = self.button_hover_color if self.button_hover else self.button_color
+        pygame.draw.rect(self.screen, color, self.button_rect, border_radius=10)
+        pygame.draw.rect(self.screen, (255, 255, 255), self.button_rect, width=2, border_radius=10)
+        
+        # Button text
+        text = self.font.render(self.button_text, True, (255, 255, 255))
+        text_rect = text.get_rect(center=self.button_rect.center)
+        self.screen.blit(text, text_rect)
+        
+        pygame.display.flip()
+
 class Game:
     def __init__(self):
         self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
         self.clock = pygame.time.Clock()
         
+        # Start with the start screen
+        self.start_screen = StartScreen(self.screen)
+        self.game_started = False
+        
         # Game state
         self.game_won = False
-        self.game_over = False  # New game over state
+        self.game_over = False
         self.win_time = 0
         self.shapes_frozen = False
         
-        # Restart background music if it was stopped
+        # Time tracking
+        self.dt = 1.0 / FPS
+        self.game_time = 0
+    
+    def init_game(self):
+        """Initialize game components after start screen"""
+        # Initialize physics space
+        space.damping = 0
+        space.collision_bias = 0.01
+        
+        # Health system and visual feedback
+        self.screen_flash_timer = 0  # For damage flash effect
+        self.last_damage_time = 0  # To prevent multiple flashes per frame
+        
+        # Create camera
+        self.camera = Camera(SCREEN_WIDTH, SCREEN_HEIGHT)
+        
+        # Create directional arrow
+        self.arrow = DirectionalArrow(SCREEN_WIDTH, SCREEN_HEIGHT)
+        
+        # Create all game objects
+        self.setup_game_objects()
+        
+        # Create fonts
+        self.font = pygame.font.Font(None, 24)
+        self.title_font = pygame.font.Font(None, 48)
+        self.win_font = pygame.font.Font(None, 72)
+        
+        # Initialize mouse position
+        self.mouse_pos = (0, 0)
+        
+        # Reset game time
+        self.game_time = 0
+        
+        # Set window caption
+        pygame.display.set_caption(f"Find Your Mother! - {len(self.shapes)} Shapes to Explore")
+        
+        # Start background music
         if not pygame.mixer.music.get_busy():
             start_background_music()
+    
+    def setup_game_objects(self):
+        """Create all game objects including shapes, character, and mother"""
+        # Generate shapes with non-overlapping positions
+        print("Generating 100+ shapes across expanded world...")
+        self.shapes = []
+        num_shapes = 104  # Number of shapes to generate
+        
+        for i in range(num_shapes):
+            shape = generate_shape_at_valid_position(self.shapes, i)
+            self.shapes.append(shape)
+            if i % 20 == 0:
+                print(f"Generated {i+1}/{num_shapes} shapes...")
+        
+        # Find valid starting position on a happy shape
+        happy_shapes = [i for i, shape in enumerate(self.shapes) if shape.mood == 'happy']
+        if not happy_shapes:
+            char_start_shape = random.randint(0, len(self.shapes) - 1)
+            self.shapes[char_start_shape].mood = 'happy'
+        else:
+            char_start_shape = random.choice(happy_shapes)
+        
+        start_shape = self.shapes[char_start_shape]
+        start_pos = start_shape.get_position_on_perimeter(0.0)
+        
+        # Create mother shape at a distant position
+        min_distance = 800
+        max_attempts = 100
+        margin = 100
+        self.mother_shape_id = None
+        best_distance = 0
+        best_position = None
+        
+        for _ in range(max_attempts):
+            x = random.randint(margin, WORLD_WIDTH - margin)
+            y = random.randint(margin, WORLD_HEIGHT - margin)
+            distance = math.sqrt((start_pos[0] - x)**2 + (start_pos[1] - y)**2)
+            
+            if distance >= min_distance and is_position_valid(x, y, 80, self.shapes):
+                mother_shape = Shape(center=(x, y), radius=80, color=WHITE, 
+                                  shape_id=len(self.shapes), is_mother=True)
+                mother_shape.mood = 'happy'
+                self.shapes.append(mother_shape)
+                self.mother_shape_id = len(self.shapes) - 1
+                break
+            
+            if distance > best_distance and is_position_valid(x, y, 80, self.shapes):
+                best_distance = distance
+                best_position = (x, y)
+        
+        # Use best position if no ideal position found
+        if self.mother_shape_id is None and best_position:
+            x, y = best_position
+            mother_shape = Shape(center=(x, y), radius=80, color=WHITE,
+                               shape_id=len(self.shapes), is_mother=True)
+            mother_shape.mood = 'happy'
+            self.shapes.append(mother_shape)
+            self.mother_shape_id = len(self.shapes) - 1
+        
+        # Create character at starting position
+        self.character = Character(start_pos[0], start_pos[1])
+        self.character.current_shape_id = char_start_shape
+        
+        # Create harpoon
+        self.harpoon = Harpoon()
+        
+        # Setup collision handler
+        handler = space.add_default_collision_handler()
+        handler.pre_solve = self.on_collision
+        handler.separate = self.on_separate
+        
+        # Log initialization stats
+        mother_center = self.shapes[self.mother_shape_id].get_center()
+        final_distance = math.sqrt((start_pos[0] - mother_center[0])**2 + 
+                                 (start_pos[1] - mother_center[1])**2)
+        print(f"Mother shape: Shape {self.mother_shape_id}")
+        print(f"Distance to mother: {final_distance:.0f} pixels")
+        happy_count = sum(1 for shape in self.shapes if shape.mood == 'happy')
+        print(f"Shape moods: {happy_count} Happy, {len(self.shapes)-happy_count} Angry")
         
         # Health system and visual feedback
         self.screen_flash_timer = 0  # For damage flash effect
@@ -1615,6 +1975,19 @@ class Game:
     def run(self):
         running = True
         while running:
+            # Handle start screen
+            if not self.game_started:
+                running = not self.start_screen.update()
+                if running:
+                    self.start_screen.draw()
+                    if self.start_screen.done:
+                        self.game_started = True
+                        self.init_game()  # Initialize game components
+                    else:
+                        self.clock.tick(FPS)
+                        continue
+            
+            # Normal game loop
             running = self.handle_events()
             self.update()
             self.draw()
