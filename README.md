@@ -1,21 +1,26 @@
-Looking-for-Mum-OLC-CodeJam-2025
-
-OBJECTIVE:
-===
+# \# Looking-for-Mum-OLC-CodeJam-2025
 
 # 
 
-# Navigate back to the mother shape to win! (she looks like you)
-
-# &nbsp;CONTROLS:
+# \## OBJECTIVE
 
 # 
 
-# Left Click - Fire Harpoon towards cursor
+# Navigate back to the mother shape to win! (She looks like you)
 
-# A/D - Move on the edge of the current shape  
+# 
 
-# STORY:
+# \## CONTROLS
+
+# 
+
+# \- \*\*Left Click\*\* - Fire Harpoon towards cursor
+
+# \- \*\*A/D\*\* - Move on the edge of the current shape
+
+# 
+
+# \## STORY
 
 # 
 
@@ -27,39 +32,39 @@ OBJECTIVE:
 
 # 
 
-# When he awoke, the world was suddenly very big and Mum was nowhere to be seen. But Bob, with those amazing pink cheeks he has from his mother, didn't despair! He simply readied his trusty harpoon, gave his brilliant FindMUMmeter a confident tap, and set off on his grand adventure home.
+# When he awoke, the world was suddenly very big and Mum was nowhere to be seen. But Bob, with those amazing pink cheeks he has from his mother, didn't despair! He simply readied his trusty harpoon, gave his brilliant \*\*FindMUMmeter\*\* a confident tap, and set off on his grand adventure home.
 
 # 
 
-# Credits:
+# \## Credits
 
 # 
 
-# Sound
+# \### Sound
 
 # 
 
-# &nbsp;   Soundtrack \& Harpoon Sound: Created with stock resources from Ableton Live 12 Lite.
+# \*   \*\*Soundtrack \& Harpoon Sound:\*\* Created with stock resources from Ableton Live 12 Lite.
 
-# &nbsp;   Victory Sound: "goodresult-82807" from Pixabay. URL: https://pixabay.com/sound-effects/goodresult-82807/ 
-
-# 
-
-# Art
+# \*   \*\*Victory Sound:\*\* "goodresult-82807" from Pixabay. URL: <https://pixabay.com/sound-effects/goodresult-82807/>
 
 # 
 
-# &nbsp;   Start Screen Shapes: Hand-drawn SVGs created in Canva.
-
-# &nbsp;   Start Screen Title: AI-generated via https://nanobanana.ai/ 
+# \### Art
 
 # 
 
-# Code
+# \*   \*\*Start Screen Shapes:\*\* Hand-drawn SVGs created in Canva.
+
+# \*   \*\*Start Screen Title:\*\* AI-generated via <https://nanobanana.ai/>
 
 # 
 
-# &nbsp;   Source Code: Available at https://github.com/reallemoncucumber/Looking-for-Mum-OLC-CodeJam-2025
+# \### Code
 
-# &nbsp;   Development Tools: VibeCoded using GitHub Copilot and Qwen-Code. 
+# 
+
+# \*   \*\*Source Code:\*\* Available at <https://github.com/reallemoncucumber/Looking-for-Mum-OLC-CodeJam-2025>
+
+# \*   \*\*Development Tools:\*\* VibeCoded using GitHub Copilot and Qwen-Code.
 
