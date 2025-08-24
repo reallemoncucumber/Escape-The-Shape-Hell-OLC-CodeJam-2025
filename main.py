@@ -929,21 +929,53 @@ class BackgroundShape:
 background_shapes = []
 background_time = 0
 
+# Create gradient surface once for better performance
+gradient_surface = None
+
+def create_gradient_surface():
+    """Create a gradient surface for the background"""
+    global gradient_surface
+    gradient_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+    
+    # Create the base gradient (top to bottom)
+    for y in range(SCREEN_HEIGHT):
+        # Base gradient colors (from blue to purple)
+        r = int(69 + (30 - 69) * (y / SCREEN_HEIGHT))
+        g = int(183 + (60 - 183) * (y / SCREEN_HEIGHT))
+        b = int(209 + (114 - 209) * (y / SCREEN_HEIGHT))
+        color = (r, g, b)
+        pygame.draw.line(gradient_surface, color, (0, y), (SCREEN_WIDTH, y))
+
 def create_gradient_background(screen):
-    global background_time, background_shapes
+    global background_time, background_shapes, gradient_surface
+    
+    # Create gradient surface if it doesn't exist
+    if gradient_surface is None:
+        create_gradient_surface()
     
     # Update background time for color cycling (slower)
     background_time += 0.002  # Reduced from 0.01 for slower cycling
     
-    # Create cycling colors
+    # Create a copy of the gradient surface to apply color cycling effect
+    animated_surface = gradient_surface.copy()
+    
+    # Apply color cycling effect to the entire surface at once
+    pixels = pygame.PixelArray(animated_surface)
     for y in range(SCREEN_HEIGHT):
         # Create bright cycling colors using sine waves with different phases
         # Minimum value increased to 180 to ensure only bright colors
-        r = int(180 + 75 * math.sin(background_time + y * 0.001))
-        g = int(180 + 75 * math.sin(background_time * 1.3 + y * 0.001))
-        b = int(180 + 75 * math.sin(background_time * 0.7 + y * 0.001))
-        color = (r, g, b)
-        pygame.draw.line(screen, color, (0, y), (SCREEN_WIDTH, y))
+        r_offset = int(20 * math.sin(background_time + y * 0.001))
+        g_offset = int(20 * math.sin(background_time * 1.3 + y * 0.001))
+        b_offset = int(20 * math.sin(background_time * 0.7 + y * 0.001))
+        pixels[:, y] = (
+            max(0, min(255, (69 + (30 - 69) * (y / SCREEN_HEIGHT)) + r_offset)),
+            max(0, min(255, (183 + (60 - 183) * (y / SCREEN_HEIGHT)) + g_offset)),
+            max(0, min(255, (209 + (114 - 209) * (y / SCREEN_HEIGHT)) + b_offset))
+        )
+    pixels.close()
+    
+    # Draw the animated background
+    screen.blit(animated_surface, (0, 0))
     
     # Manage background shapes
     # Remove expired shapes
@@ -1362,16 +1394,45 @@ class StartScreen:
         
         return False
     
-    def draw(self):
-        # Draw gradient background
-        for y in range(0, SCREEN_HEIGHT, 2):
+    def __init__(self, screen):
+        self.screen = screen
+        self.clock = pygame.time.Clock()
+        self.done = False
+        
+        # Layout configuration
+        self.margin = 60
+        self.min_spacing = 40
+        
+        # Create and position assets
+        self.assets = self.create_layout()
+        
+        # Create gradient background surface for better performance
+        self.gradient_surface = self.create_gradient_surface()
+        
+        # Button configuration remains the same
+        self.button_rect = pygame.Rect(SCREEN_WIDTH//2 - 100, SCREEN_HEIGHT - 100, 200, 50)
+        self.button_color = (46, 204, 113)
+        self.button_hover_color = (39, 174, 96)
+        self.button_text = "Start Game"
+        self.font = pygame.font.Font(None, 36)
+        self.button_hover = False  # Initialize hover state
+    
+    def create_gradient_surface(self):
+        """Create a gradient surface for the start screen background"""
+        surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+        for y in range(SCREEN_HEIGHT):
             progress = y / SCREEN_HEIGHT
             color = (
                 int(69 + (30 - 69) * progress),  # R: 69 to 30
                 int(183 + (60 - 183) * progress),  # G: 183 to 60
                 int(209 + (114 - 209) * progress)  # B: 209 to 114
             )
-            pygame.draw.rect(self.screen, color, (0, y, SCREEN_WIDTH, 2))
+            pygame.draw.line(surface, color, (0, y), (SCREEN_WIDTH, y))
+        return surface
+    
+    def draw(self):
+        # Draw gradient background
+        self.screen.blit(self.gradient_surface, (0, 0))
         
         # Draw floating assets
         for asset in self.assets:
