@@ -1463,10 +1463,10 @@ class StartScreen:
             for i, pos in enumerate(positions):
                 img = [
                     'assets/main-character-shape.png',
-                    'assets/angry-shape.png',
-                    'assets/angry-shape.png',
                     'assets/happy-shape.png',
+                    'assets/angry-shape.png',                                        
                     'assets/happy-shape.png',
+                    'assets/angry-shape.png',
                     'assets/happy-shape.png'
                 ][i]
                 assets.append(FloatingAsset(img, pos[0], pos[1],
@@ -1749,7 +1749,7 @@ class Game:
         # Reset game time
         self.game_time = 0
         
-        pygame.display.set_caption(f"Find Your Mother! - {len(self.shapes)} Shapes to Explore")
+        pygame.display.set_caption(f"Looking for Mum - {len(self.shapes)} Shapes to Explore")
         print(f"Game initialized with {len(self.shapes)} shapes in {WORLD_WIDTH}x{WORLD_HEIGHT} world")
     
     def restart_game(self):
@@ -2115,7 +2115,7 @@ class Game:
             controls_y = SCREEN_HEIGHT - 120
             controls = [
                 "CONTROLS:",
-                "Left Click - Fire Harpoon towwards cursor",
+                "Left Click - Fire Harpoon towards cursor",
                 "A/D - Move on the edge of the current shape",                
             ]
             
